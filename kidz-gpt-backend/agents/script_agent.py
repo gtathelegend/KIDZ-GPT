@@ -1,34 +1,12 @@
-import json
 from typing import Any, Dict
 
 from models.schemas import StoryboardSchema
 
-try:
-    # If you use Google Gemini
-    from google.generativeai import GenerativeModel  # type: ignore
-except Exception:
-    GenerativeModel = None
-
 
 class ScriptAgent:
     def __init__(self):
-        self.model = None
-        if GenerativeModel is not None:
-            # If credentials aren't configured, we'll still fall back safely at runtime
-            try:
-                self.model = GenerativeModel("gemini-1.5-flash")
-            except Exception:
-                self.model = None
-
-    def parse_storyboard(self, raw_text: str) -> Dict[str, Any]:
-        data = json.loads(raw_text)
-        try:
-            schema_obj = StoryboardSchema(**data)
-            if hasattr(schema_obj, "model_dump"):
-                return schema_obj.model_dump()
-            return schema_obj.dict()  # type: ignore[attr-defined]
-        except Exception:
-            return data
+        # LLM providers intentionally removed (no Google/Gemini dependency).
+        pass
 
     def _heuristic_storyboard(self, intent: Dict[str, Any], language: str) -> Dict[str, Any]:
         topic = (intent or {}).get("topic") or "yeh topic"
@@ -69,42 +47,15 @@ class ScriptAgent:
         if not intent:
             return self._heuristic_storyboard({"topic": ""}, language)
 
-        if self.model is None:
-            return self._heuristic_storyboard(intent, language)
-
-        intent_json = json.dumps(intent, ensure_ascii=False)
-        prompt = f"""
-You are an educational animation script generator for children.
-
-Intent:
-{intent_json}
-
-Language: {language}
-
-Rules:
-- Max 5 scenes
-- Simple sentences
-- Visual explanations
-- Output ONLY JSON
-
-Output format:
-{{
-  "scenes": [
-    {{
-      "scene": 1,
-      "background": "...",
-      "dialogue": "..."
-    }}
-  ]
-}}
-""".strip()
-
-        response = self.model.generate_content(prompt)
-        raw = getattr(response, "text", "") or ""
+        # Heuristic-only implementation (LLM disabled).
+        result = self._heuristic_storyboard(intent, language)
         try:
-            return self.parse_storyboard(raw)
+            schema_obj = StoryboardSchema(**result)
+            if hasattr(schema_obj, "model_dump"):
+                return schema_obj.model_dump()
+            return schema_obj.dict()  # type: ignore[attr-defined]
         except Exception:
-            return self._heuristic_storyboard(intent, language)
+            return result
 
 
 # Expose a module-level function for: `from agents.script_agent import generate_storyboard`

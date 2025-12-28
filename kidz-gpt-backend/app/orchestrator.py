@@ -1,3 +1,6 @@
+import asyncio
+import os
+
 from services.stt_service import transcribe_audio
 from services.language_service import detect_language
 from services.safety_service import is_safe
@@ -9,8 +12,14 @@ from agents.tts_agent import generate_tts
 
 async def process_audio(audio_file):
 
+    stt_timeout_s = float(os.getenv("STT_TIMEOUT_SECONDS", "180"))
+    tts_timeout_s = float(os.getenv("TTS_TIMEOUT_SECONDS", "60"))
+
     # 1️⃣ Speech to text (MUST come first)
-    text = await transcribe_audio(audio_file)
+    try:
+        text = await asyncio.wait_for(transcribe_audio(audio_file), timeout=stt_timeout_s)
+    except TimeoutError as e:
+        raise TimeoutError(f"STT timed out after {stt_timeout_s:.0f}s") from e
 
     # 2️⃣ Safety check on raw text
     if not is_safe(text):
@@ -42,7 +51,13 @@ async def process_audio(audio_file):
 
     # 8️⃣ TTS per scene
     for scene in storyboard["scenes"]:
-        scene["audio"] = generate_tts(scene["dialogue"])
+        try:
+            scene["audio"] = await asyncio.wait_for(
+                asyncio.to_thread(generate_tts, scene["dialogue"]),
+                timeout=tts_timeout_s,
+            )
+        except TimeoutError as e:
+            raise TimeoutError(f"TTS timed out after {tts_timeout_s:.0f}s") from e
         scene["duration"] = 4
         scene["character"] = "kid_avatar"
 

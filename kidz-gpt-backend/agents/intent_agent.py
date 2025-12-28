@@ -1,40 +1,12 @@
-import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from models.schemas import IntentSchema
-
-try:
-    # If you use Google Gemini
-    from google.generativeai import GenerativeModel  # type: ignore
-except Exception:
-    GenerativeModel = None
 
 
 class IntentAgent:
     def __init__(self):
-        self.model = None
-        if GenerativeModel is not None:
-            # If credentials aren't configured, we'll still fall back safely at runtime
-            try:
-                self.model = GenerativeModel("gemini-1.5-flash")
-            except Exception:
-                self.model = None
-
-    def parse_intent(self, raw_text: str) -> Dict[str, Any]:
-        """
-        Parse model JSON output into a plain dict.
-        If IntentSchema is strict, coerce via schema then dump back to dict.
-        """
-        data = json.loads(raw_text)
-        try:
-            schema_obj = IntentSchema(**data)
-            # Pydantic v2: model_dump; v1: dict
-            if hasattr(schema_obj, "model_dump"):
-                return schema_obj.model_dump()
-            return schema_obj.dict()  # type: ignore[attr-defined]
-        except Exception:
-            # If schema validation fails, just return raw parsed JSON
-            return data
+        # LLM providers intentionally removed (no Google/Gemini dependency).
+        pass
 
     def _heuristic_intent(self, text: str) -> Dict[str, Any]:
         text_lower = text.lower()
@@ -61,38 +33,16 @@ class IntentAgent:
         if not text:
             return {"topic": "", "question_type": "general", "difficulty": "child"}
 
-        if self.model is None:
-            return self._heuristic_intent(text)
-
-        prompt = f"""
-You are an intent extraction agent for kids learning.
-
-Input text:
-"{text}"
-
-Language: {language}
-
-Rules:
-- Detect topic
-- Detect question type (why, what, how, when, where, who)
-- Assume child age
-- Output ONLY valid JSON
-
-Output format:
-{{
-  "topic": "...",
-  "question_type": "...",
-  "difficulty": "child"
-}}
-""".strip()
-
-        response = self.model.generate_content(prompt)
-        raw = getattr(response, "text", "") or ""
+        # Heuristic-only implementation (LLM disabled).
+        # Keep schema import available for future validation if needed.
+        result = self._heuristic_intent(text)
         try:
-            return self.parse_intent(raw)
+            schema_obj = IntentSchema(**result)
+            if hasattr(schema_obj, "model_dump"):
+                return schema_obj.model_dump()
+            return schema_obj.dict()  # type: ignore[attr-defined]
         except Exception:
-            # If the model returns non-JSON, fall back safely
-            return self._heuristic_intent(text)
+            return result
 
 
 # Expose a module-level function for: `from agents.intent_agent import extract_intent`

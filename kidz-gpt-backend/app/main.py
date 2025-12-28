@@ -1,6 +1,9 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from app.orchestrator import process_audio
 import traceback
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI(title="KIDZ GPT Backend")
 
@@ -8,7 +11,10 @@ app = FastAPI(title="KIDZ GPT Backend")
 async def process(audio: UploadFile = File(...)):
     try:
         return await process_audio(audio)
+    except TimeoutError as e:
+        raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:
         print("❌ ERROR OCCURRED")
         traceback.print_exc()
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
+

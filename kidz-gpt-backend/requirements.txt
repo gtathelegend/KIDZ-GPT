@@ -7,6 +7,7 @@ python-multipart
 openai-whisper
 torch
 ffmpeg-python
+imageio-ffmpeg
 
 # NLP
 langdetect
@@ -19,3 +20,4 @@ TTS   # Coqui TTS
 
 # Utils
 numpy
+python-dotenv
