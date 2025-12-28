@@ -1,0 +1,21 @@
+fastapi
+uvicorn
+pydantic
+python-multipart
+
+# Speech to text
+openai-whisper
+torch
+ffmpeg-python
+
+# NLP
+langdetect
+regex
+
+# TTS (choose ONE)
+pyttsx3
+# OR
+TTS   # Coqui TTS
+
+# Utils
+numpy
