@@ -1,28 +1,10 @@
-from google.cloud import texttospeech
+import pyttsx3
 import uuid
 
-client = texttospeech.TextToSpeechClient()
+engine = pyttsx3.init()
 
-def generate_tts(text, language_code="hi-IN"):
-    synthesis_input = texttospeech.SynthesisInput(text=text)
-
-    voice = texttospeech.VoiceSelectionParams(
-        language_code=language_code,
-        ssml_gender=texttospeech.SsmlVoiceGender.NEUTRAL
-    )
-
-    audio_config = texttospeech.AudioConfig(
-        audio_encoding=texttospeech.AudioEncoding.MP3
-    )
-
-    response = client.synthesize_speech(
-        input=synthesis_input,
-        voice=voice,
-        audio_config=audio_config
-    )
-
-    filename = f"audio_{uuid.uuid4()}.mp3"
-    with open(filename, "wb") as f:
-        f.write(response.audio_content)
-
+def generate_tts(text):
+    filename = f"audio_{uuid.uuid4()}.wav"
+    engine.save_to_file(text, filename)
+    engine.runAndWait()
     return filename

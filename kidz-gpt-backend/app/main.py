@@ -1,13 +1,14 @@
 from fastapi import FastAPI, UploadFile, File
 from app.orchestrator import process_audio
+import traceback
 
 app = FastAPI(title="KIDZ GPT Backend")
 
-@app.get("/")
-def health():
-    return {"status": "Backend running"}
-
 @app.post("/process")
 async def process(audio: UploadFile = File(...)):
-    result = await process_audio(audio)
-    return result
+    try:
+        return await process_audio(audio)
+    except Exception as e:
+        print("❌ ERROR OCCURRED")
+        traceback.print_exc()
+        return {"error": str(e)}

@@ -1,34 +1,59 @@
-from agents.tts_agent import generate_tts
 from services.stt_service import transcribe_audio
 from services.language_service import detect_language
-from agents.intent_agent import IntentAgent
-from agents.script_agent import ScriptAgent
 from services.safety_service import is_safe
+from services.cache_service import get, set
+from agents.intent_agent import extract_intent
+from agents.script_agent import generate_storyboard
+from agents.tts_agent import generate_tts
+
+
 async def process_audio(audio_file):
+
+    # 1️⃣ Speech to text (MUST come first)
+    text = await transcribe_audio(audio_file)
+
+    # 2️⃣ Safety check on raw text
     if not is_safe(text):
         return {
             "error": "Unsafe content detected",
             "message": "Please ask a different question"
         }
-    # 1. Speech to text
-    text = await transcribe_audio(audio_file)
 
-    # 2. Language detection
+    # 3️⃣ Cache check (after text exists)
+    cached = get(text)
+    if cached:
+        return cached
+
+    # 4️⃣ Language detection
     language = detect_language(text)
 
-    # 3. Intent extraction (ADK agent)
-    intent_agent = IntentAgent()
-    intent = intent_agent.run(text, language)
+    # 5️⃣ Intent extraction
+    intent = extract_intent(text, language)
 
-    # 4. Script generation (ADK agent)
-    script_agent = ScriptAgent()
-    storyboard = script_agent.run(intent, language)
+    # 6️⃣ Storyboard generation
+    storyboard = generate_storyboard(intent, language)
 
-    for scene in storyboard.scenes:
-        scene.audio = generate_tts(scene.dialogue)
+    # 7️⃣ Safety check on generated dialogue
+    for scene in storyboard["scenes"]:
+        if not is_safe(scene["dialogue"]):
+            return {
+                "error": "Generated content unsafe"
+            }
 
-    return {
+    # 8️⃣ TTS per scene
+    for scene in storyboard["scenes"]:
+        scene["audio"] = generate_tts(scene["dialogue"])
+        scene["duration"] = 4
+        scene["character"] = "kid_avatar"
+
+    result = {
         "language": language,
+        "original_text": text,
         "intent": intent,
-        "storyboard": storyboard
+        "scenes": storyboard["scenes"]
     }
+
+    # 9️⃣ Cache result
+    set(text, result)
+
+    return result

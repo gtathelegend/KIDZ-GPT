@@ -1,13 +1,18 @@
 import whisper
 import tempfile
+import os
 
-model = whisper.load_model("small")
+# ✅ LOAD ONCE AT IMPORT TIME
+model = whisper.load_model("base", device="cpu")
 
 async def transcribe_audio(audio_file):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-        content = await audio_file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
+    audio_bytes = await audio_file.read()
 
-    result = model.transcribe(tmp_path)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+        tmp.write(audio_bytes)
+        path = tmp.name
+
+    result = model.transcribe(path, fp16=False)
+
+    os.remove(path)
     return result["text"]
