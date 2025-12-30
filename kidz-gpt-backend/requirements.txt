@@ -2,8 +2,9 @@ fastapi
 uvicorn
 pydantic
 python-multipart
+httpx
 
-# Speech to text
+# Speech to text (for whisper_server.py)
 openai-whisper
 torch
 ffmpeg-python

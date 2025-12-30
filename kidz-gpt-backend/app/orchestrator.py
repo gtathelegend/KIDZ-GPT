@@ -37,10 +37,10 @@ async def process_audio(audio_file):
     language = detect_language(text)
 
     # 5️⃣ Intent extraction
-    intent = extract_intent(text, language)
+    intent = await extract_intent(text, language)
 
     # 6️⃣ Storyboard generation
-    storyboard = generate_storyboard(intent, language)
+    storyboard = await generate_storyboard(intent, language)
 
     # 7️⃣ Safety check on generated dialogue
     for scene in storyboard["scenes"]:
