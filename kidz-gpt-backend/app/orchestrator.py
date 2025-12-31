@@ -10,14 +10,14 @@ from agents.script_agent import generate_storyboard
 from agents.tts_agent import generate_tts
 
 
-async def process_audio(audio_file):
+async def process_audio(audio_file, language: str = "en"):
 
     stt_timeout_s = float(os.getenv("STT_TIMEOUT_SECONDS", "180"))
     tts_timeout_s = float(os.getenv("TTS_TIMEOUT_SECONDS", "60"))
 
     # 1️⃣ Speech to text (MUST come first)
     try:
-        text = await asyncio.wait_for(transcribe_audio(audio_file), timeout=stt_timeout_s)
+        text = await asyncio.wait_for(transcribe_audio(audio_file, language), timeout=stt_timeout_s)
     except TimeoutError as e:
         raise TimeoutError(f"STT timed out after {stt_timeout_s:.0f}s") from e
 
@@ -33,8 +33,9 @@ async def process_audio(audio_file):
     if cached:
         return cached
 
-    # 4️⃣ Language detection
-    language = detect_language(text)
+    # 4️⃣ Language detection (if not already specified)
+    if language == "en":  # Assuming 'en' is the default and implies no specific language was chosen
+        language = detect_language(text)
 
     # 5️⃣ Intent extraction
     intent = await extract_intent(text, language)

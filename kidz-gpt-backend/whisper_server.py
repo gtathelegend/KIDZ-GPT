@@ -55,7 +55,7 @@ async def startup_event():
     _get_whisper_model()
 
 @app.post("/transcribe")
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(file: UploadFile = File(...), language: str = "en"):
     audio_bytes = await file.read()
 
     filename = getattr(file, "filename", None) or "audio.mp3"
@@ -72,7 +72,9 @@ async def transcribe_audio(file: UploadFile = File(...)):
         model = _get_whisper_model()
         
         # Run transcription in a separate thread to avoid blocking the event loop
-        result = await asyncio.to_thread(model.transcribe, path, fp16=(device == "cuda"))
+        result = await asyncio.to_thread(
+            model.transcribe, path, fp16=(device == "cuda"), language=language
+        )
         
         return {"text": result["text"]}
     finally:

@@ -3,16 +3,17 @@ import os
 import httpx
 
 
-async def transcribe_audio(audio_file):
+async def transcribe_audio(audio_file, language: str = "en"):
     audio_bytes = await audio_file.read()
     
     filename = getattr(audio_file, "filename", None) or "audio.mp3"
 
     files = {'file': (filename, audio_bytes)}
+    data = {'language': language}
     
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post("http://localhost:8001/transcribe", files=files)
+            response = await client.post("http://localhost:8001/transcribe", files=files, data=data)
             response.raise_for_status()
             result = response.json()
             return result.get("text", "")

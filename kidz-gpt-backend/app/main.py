@@ -8,9 +8,9 @@ load_dotenv()
 app = FastAPI(title="KIDZ GPT Backend")
 
 @app.post("/process")
-async def process(audio: UploadFile = File(...)):
+async def process(audio: UploadFile = File(...), language: str = "en"):
     try:
-        return await process_audio(audio)
+        return await process_audio(audio, language)
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:
