@@ -54,7 +54,7 @@ async def process_audio(audio_file, language: str = "en"):
     for scene in storyboard["scenes"]:
         try:
             scene["audio"] = await asyncio.wait_for(
-                asyncio.to_thread(generate_tts, scene["dialogue"]),
+                asyncio.to_thread(generate_tts, scene["dialogue"], language),
                 timeout=tts_timeout_s,
             )
         except TimeoutError as e:

@@ -14,7 +14,8 @@ class ScriptAgent:
         topic = (intent or {}).get("topic") or "a random topic"
 
         prompt = f"""
-        Generate a short, simple, two-scene storyboard for a child about "{topic}".
+        Generate a short, simple storyboard for a child about "{topic}".
+        The number of scenes can vary, but should be appropriate for the topic's complexity.
         The language should be {language}.
         Return a JSON object with a "scenes" key, which is a list of scenes.
         Each scene object should have "scene" (number), "background" (a simple description), and "dialogue" (one sentence).
