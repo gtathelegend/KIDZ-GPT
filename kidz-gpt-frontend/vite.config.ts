@@ -47,5 +47,11 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
+    proxy: {
+      "/process": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+    },
   },
 });

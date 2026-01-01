@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from app.orchestrator import process_audio
 import traceback
 from dotenv import load_dotenv
@@ -6,6 +7,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI(title="KIDZ GPT Backend")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
 
 @app.post("/process")
 async def process(audio: UploadFile = File(...), language: str = "en"):

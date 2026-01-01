@@ -18,8 +18,21 @@ async def process_audio(audio_file, language: str = "en"):
     # 1️⃣ Speech to text (MUST come first)
     try:
         text = await asyncio.wait_for(transcribe_audio(audio_file, language), timeout=stt_timeout_s)
+        
+        # Validate transcription result
+        if not text or text.strip() == "":
+            raise ValueError("Transcription returned empty text. Please try speaking again.")
+        if text.lower() in ["error in transcription.", "error"]:
+            raise ValueError("Transcription service returned an error. Please try again.")
+            
     except TimeoutError as e:
         raise TimeoutError(f"STT timed out after {stt_timeout_s:.0f}s") from e
+    except Exception as e:
+        # Re-raise with more context
+        error_msg = str(e)
+        if "transcription" in error_msg.lower() or "stt" in error_msg.lower():
+            raise Exception(f"Speech-to-text failed: {error_msg}")
+        raise
 
     # 2️⃣ Safety check on raw text
     if not is_safe(text):

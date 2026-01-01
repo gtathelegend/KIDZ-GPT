@@ -1,4 +1,6 @@
 import uuid
+import os
+import base64
 import pyttsx3
 
 def generate_tts(text, language):
@@ -23,6 +25,26 @@ def generate_tts(text, language):
     if selected_voice:
         engine.setProperty('voice', selected_voice)
 
+    # Generate audio file
     engine.save_to_file(text, filename)
     engine.runAndWait()
-    return filename
+    
+    # Read the generated audio file and convert to base64
+    try:
+        with open(filename, 'rb') as audio_file:
+            audio_bytes = audio_file.read()
+            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+        
+        # Clean up the temporary file
+        if os.path.exists(filename):
+            os.remove(filename)
+        
+        return audio_base64
+    except Exception as e:
+        # Clean up on error
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except:
+                pass
+        raise Exception(f"Failed to read TTS audio file: {str(e)}")
