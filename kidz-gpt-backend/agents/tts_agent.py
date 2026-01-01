@@ -1,7 +1,7 @@
 import uuid
 import pyttsx3
 
-def generate_tts(text, language="en"):
+def generate_tts(text, language):
     filename = f"audio_{uuid.uuid4()}.wav"
     engine = pyttsx3.init()
 

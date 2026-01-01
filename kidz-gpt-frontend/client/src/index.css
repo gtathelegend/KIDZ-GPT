@@ -1,0 +1,222 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* =========================================================
+   🎨 KIDZ GPT COLOR DESIGN SYSTEM
+   ========================================================= */
+
+:root {
+  /* ---------- BRAND & BACKGROUNDS ---------- */
+  --bg-primary: #6EC6FF;        /* Sky Blue */
+  --bg-secondary: #FFF3B0;      /* Soft Yellow */
+  --bg-learning: #E3F2FD;       /* Very light blue (focus area) */
+  --bg-surface: #FFFFFF;       /* Cloud White */
+  --border-soft: #DCE9F5;
+
+  /* ---------- TEXT COLORS ---------- */
+  --text-primary: #1F2A44;      /* Deep Navy */
+  --text-secondary: #4A5D73;
+  --text-on-cta: #FFFFFF;
+  --text-on-yellow: #3A3A3A;
+
+  /* ---------- CALL TO ACTION (CTA) COLORS ---------- */
+  --cta-primary: #4CAF50;       /* Friendly Green */
+  --cta-voice: #2196F3;         /* Bright Blue */
+  --cta-explore: #FFC107;       /* Warm Amber */
+  --cta-disabled: #BDBDBD;
+
+  /* ---------- FEEDBACK & REWARDS ---------- */
+  --reward-gold: #FFD700;
+  --info-teal: #26C6DA;
+  --bg-success: #E8F5E9;
+
+  /* ---------- CHARACTER & ANIMATION ACCENTS ---------- */
+  --accent-coral: #FF8A65;
+  --accent-soft-green: #81C784;
+  --accent-soft-purple: #CE93D8;
+
+  /* ---------- SHADOWS & EFFECTS ---------- */
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-cta: 0 6px 0 rgba(0, 0, 0, 0.15);
+
+  /* Tailwind defaults mapped to theme if needed, but we'll use custom classes mostly */
+  --radius: 1rem;
+}
+
+/* =========================================================
+   🧱 LAYOUT STYLES & GLOBALS
+   ========================================================= */
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: "Comic Neue", "Poppins", system-ui, sans-serif;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Learning area where animations & explanations play */
+.learning-container {
+  background-color: var(--bg-learning);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: var(--shadow-soft);
+}
+
+/* Cards (dialogs, tips, mini popups) */
+.card {
+  background-color: var(--bg-surface);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: var(--shadow-soft);
+}
+
+
+/* =========================================================
+   🚀 CTA BUTTON STYLES
+   ========================================================= */
+
+.button {
+  border: none;
+  border-radius: 999px; /* pill shape */
+  padding: 16px 28px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+/* Primary CTA — Start / Play */
+.button-primary {
+  background-color: var(--cta-primary);
+  color: var(--text-on-cta);
+  box-shadow: var(--shadow-cta);
+}
+
+.button-primary:hover {
+  transform: scale(1.05);
+}
+
+.button-primary:active {
+  transform: scale(0.98);
+  box-shadow: 0 2px 0 rgba(0,0,0,0.15);
+}
+
+/* Voice CTA — Ask / Speak */
+.button-voice {
+  background-color: var(--cta-voice);
+  color: var(--text-on-cta);
+  box-shadow: 0 6px 0 rgba(0,0,0,0.15); /* added shadow for consistency */
+}
+.button-voice:hover {
+  transform: scale(1.05);
+}
+.button-voice:active {
+  transform: scale(0.98);
+  box-shadow: 0 2px 0 rgba(0,0,0,0.15);
+}
+
+
+/* Explore CTA — Try another topic */
+.button-explore {
+  background-color: var(--cta-explore);
+  color: var(--text-on-yellow);
+  box-shadow: 0 6px 0 rgba(0,0,0,0.15);
+}
+
+/* Disabled button */
+.button-disabled {
+  background-color: var(--cta-disabled);
+  cursor: not-allowed;
+  box-shadow: none;
+  color: white;
+}
+
+
+/* =========================================================
+   ⭐ FEEDBACK & REWARD ELEMENTS
+   ========================================================= */
+
+.reward-badge {
+  background-color: var(--reward-gold);
+  color: #5D4037;
+  border-radius: 50%;
+  padding: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.success-message {
+  background-color: var(--bg-success);
+  color: var(--text-primary);
+  padding: 12px 16px;
+  border-radius: 12px;
+}
+
+
+/* =========================================================
+   💬 SUBTITLES & DIALOGUE
+   ========================================================= */
+
+.subtitle {
+  background-color: rgba(255, 255, 255, 0.9);
+  color: var(--text-primary);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  max-width: 80%;
+  margin: auto;
+  text-align: center;
+}
+
+
+/* =========================================================
+   🎭 CHARACTER ZONE
+   ========================================================= */
+
+.character-container {
+  background: linear-gradient(
+    to bottom,
+    #6EC6FF,
+    #B3E5FC
+  );
+  border-radius: 24px;
+  padding: 20px;
+}
+
+/* Utilities helper */
+.text-comic {
+    font-family: "Comic Neue", system-ui, sans-serif;
+}
+.text-poppins {
+    font-family: "Poppins", system-ui, sans-serif;
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.05);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #FFE082;
+}
+
+/* Mask Fade */
+.mask-linear-fade {
+  mask-image: linear-gradient(to right, black 80%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black 80%, transparent 100%);
+}
