@@ -4,6 +4,45 @@ import http from "http";
 import https from "https";
 import { storage } from "./storage";
 
+const readJsonFromUrl = (url: URL): Promise<any> => {
+  const client = url.protocol === "https:" ? https : http;
+
+  return new Promise((resolve, reject) => {
+    const req = client.get(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || (url.protocol === "https:" ? 443 : 80),
+        path: `${url.pathname}${url.search}`,
+        headers: {
+          "User-Agent": "kidz-gpt-frontend/1.0 (topic image fetch)",
+          Accept: "application/json",
+        },
+      },
+      (res) => {
+        const status = res.statusCode || 500;
+        const chunks: Buffer[] = [];
+        res.on("data", (d) => chunks.push(Buffer.isBuffer(d) ? d : Buffer.from(d)));
+        res.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf-8");
+          if (status < 200 || status >= 300) {
+            reject(new Error(`HTTP ${status}: ${text.slice(0, 200)}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(text));
+          } catch (e) {
+            reject(new Error("Failed to parse JSON response"));
+          }
+        });
+      },
+    );
+
+    req.on("error", reject);
+    req.end();
+  });
+};
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -103,6 +142,67 @@ export async function registerRoutes(
   };
 
   app.all("/process", proxyToBackend);
+
+  // Fetch a topic image from Wikipedia/Wikimedia (thumbnail if available).
+  // Client calls /topic-image?query=Solar%20System
+  app.get("/topic-image", async (req: Request, res: Response) => {
+    try {
+      const query = String(req.query.query || "").trim();
+      if (!query) {
+        res.status(400).json({ error: "Missing query" });
+        return;
+      }
+
+      // Use the MediaWiki API search to find the best-matching page and a thumbnail.
+      // This is much more reliable than exact-title summary lookups (e.g. "moon" vs "Moon").
+      const searchUrl = new URL("https://en.wikipedia.org/w/api.php");
+      searchUrl.searchParams.set("action", "query");
+      searchUrl.searchParams.set("format", "json");
+      searchUrl.searchParams.set("generator", "search");
+      searchUrl.searchParams.set("gsrsearch", query);
+      searchUrl.searchParams.set("gsrlimit", "1");
+      searchUrl.searchParams.set("prop", "pageimages|info");
+      searchUrl.searchParams.set("inprop", "url");
+      searchUrl.searchParams.set("pithumbsize", "800");
+
+      const searchData = await readJsonFromUrl(searchUrl);
+      const pagesObj = searchData?.query?.pages || {};
+      const pages = Object.values(pagesObj) as any[];
+      const page = pages[0];
+
+      // Best effort extraction of image + page URL
+      const pageUrl = typeof page?.fullurl === "string" ? page.fullurl : "";
+      const title = typeof page?.title === "string" ? page.title : query;
+      const imageUrl = typeof page?.thumbnail?.source === "string" ? page.thumbnail.source : "";
+
+      if (imageUrl) {
+        res.json({ imageUrl, title, pageUrl });
+        return;
+      }
+
+      // Fallback: Wikipedia REST summary sometimes has a thumbnail even when pageimages doesn't.
+      const encodedTitle = encodeURIComponent(String(title).replace(/\s+/g, " "));
+      const summaryUrl = new URL(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodedTitle}`);
+      const summaryData = await readJsonFromUrl(summaryUrl);
+      const summaryImage = summaryData?.thumbnail?.source || summaryData?.originalimage?.source || "";
+      if (summaryImage) {
+        res.json({
+          imageUrl: summaryImage,
+          title: summaryData?.title || title,
+          pageUrl: summaryData?.content_urls?.desktop?.page || summaryData?.content_urls?.mobile?.page || pageUrl,
+        });
+        return;
+      }
+
+      res.status(404).json({ error: "No image found" });
+    } catch (e: any) {
+      console.error("/topic-image error:", e);
+      res.status(502).json({
+        error: "Failed to fetch topic image",
+        message: e?.message || "Unknown error",
+      });
+    }
+  });
 
   // use storage to perform CRUD operations on the storage interface
   // e.g. storage.insertUser(user) or storage.getUserByUsername(username)

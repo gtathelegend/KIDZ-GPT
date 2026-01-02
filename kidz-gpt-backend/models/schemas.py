@@ -13,3 +13,9 @@ class SceneSchema(BaseModel):
 
 class StoryboardSchema(BaseModel):
     scenes: List[SceneSchema]
+
+
+class ExplainerSchema(BaseModel):
+    title: str
+    summary: str
+    points: List[str]

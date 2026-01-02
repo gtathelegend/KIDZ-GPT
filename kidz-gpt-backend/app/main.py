@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from app.orchestrator import process_audio
 import traceback
@@ -19,9 +19,23 @@ app.add_middleware(
 
 
 @app.post("/process")
-async def process(audio: UploadFile = File(...), language: str = "en"):
+async def process(
+    audio: UploadFile = File(...), 
+    language: str = Form("en")
+):
     try:
-        return await process_audio(audio, language)
+        # Normalize language code (e.g., "en-IN" -> "en", "hi-IN" -> "hi").
+        # Also accept "auto" to mean: let Whisper auto-detect.
+        normalized = (language or "").strip().lower()
+
+        if normalized in ["", "auto", "detect", "unknown"]:
+            base_language = "en"  # triggers auto-detect behavior in whisper_server
+        elif "-" in normalized:
+            base_language = normalized.split("-")[0]
+        else:
+            base_language = normalized
+        
+        return await process_audio(audio, base_language)
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:

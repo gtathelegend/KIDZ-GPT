@@ -7,7 +7,9 @@ from services.safety_service import is_safe
 from services.cache_service import get, set
 from agents.intent_agent import extract_intent
 from agents.script_agent import generate_storyboard
-from agents.tts_agent import generate_tts
+# Non-dialogue explanation + key points for the topic section
+from agents.explain_agent import generate_explainer
+# TTS is handled by frontend browser TTS - no need to import generate_tts
 
 
 async def process_audio(audio_file, language: str = "en"):
@@ -17,7 +19,14 @@ async def process_audio(audio_file, language: str = "en"):
 
     # 1️⃣ Speech to text (MUST come first)
     try:
-        text = await asyncio.wait_for(transcribe_audio(audio_file, language), timeout=stt_timeout_s)
+        transcription_result = await asyncio.wait_for(transcribe_audio(audio_file, language), timeout=stt_timeout_s)
+        
+        # Handle tuple return (text, detected_language) or just text for backward compatibility
+        if isinstance(transcription_result, tuple):
+            text, whisper_detected_lang = transcription_result
+        else:
+            text = transcription_result
+            whisper_detected_lang = None
         
         # Validate transcription result
         if not text or text.strip() == "":
@@ -43,12 +52,39 @@ async def process_audio(audio_file, language: str = "en"):
 
     # 3️⃣ Cache check (after text exists)
     cached = get(text)
-    if cached:
+    # Avoid returning old cached payloads that don't include the new explainer block.
+    if cached and isinstance(cached, dict) and cached.get("explainer"):
         return cached
 
-    # 4️⃣ Language detection (if not already specified)
-    if language == "en":  # Assuming 'en' is the default and implies no specific language was chosen
-        language = detect_language(text)
+    # 4️⃣ Language detection and validation
+    # Priority: Whisper detected language > User specified language > Auto-detect
+    original_language = language
+    
+    # Use Whisper's detected language if available (most accurate)
+    if whisper_detected_lang:
+        # Normalize language code (e.g., "hi" from Whisper)
+        language = whisper_detected_lang
+        print(f"🌐 Using Whisper detected language: {language} (was: {original_language})")
+    elif language in ["en", "auto", "unknown", ""]:
+        # If no Whisper detection and language is default/auto, try to detect from text
+        detected = detect_language(text)
+        if detected and detected != "unknown" and detected != "en":
+            language = detected
+            print(f"🔍 Language detected from text: {detected} (was: {original_language})")
+        else:
+            # Keep as English if detection fails
+            language = "en"
+            print(f"🌐 Using default language: English")
+    else:
+        # User specified a language explicitly - use it
+        # Extract base language code if it's a full tag (e.g., "hi-IN" -> "hi")
+        if "-" in language:
+            language = language.split("-")[0]
+        print(f"🌐 Using user specified language: {language}")
+    
+    # Ensure language is normalized to ISO 639-1 code (e.g., "hi", "en", "bn")
+    # This ensures consistency across the pipeline
+    language = language.lower().split("-")[0] if language else "en"
 
     # 5️⃣ Intent extraction
     intent = await extract_intent(text, language)
@@ -56,22 +92,91 @@ async def process_audio(audio_file, language: str = "en"):
     # 6️⃣ Storyboard generation
     storyboard = await generate_storyboard(intent, language)
 
-    # 7️⃣ Safety check on generated dialogue
+    # NOTE: We no longer do a separate translation step.
+    # The storyboard + explainer should be generated directly in the user's spoken language
+    # (as detected by Whisper) to avoid translation-model drift.
+
+    # 6.8️⃣ Generate a clean explainer (not dialogue) for the topic card
+    explainer = None
+    try:
+        topic = (intent or {}).get("topic") or ""
+        explainer = await generate_explainer(topic=topic, question=text, language=language)
+    except Exception as e:
+        print(f"⚠️ Explainer generation failed: {e}")
+        topic_title = (intent or {}).get("topic") or "Explanation"
+        lang_code = (language or "en").lower().split("-")[0]
+        
+        # Language-specific fallback
+        fallback_by_lang = {
+            "hi": {
+                "title": topic_title,
+                "summary": "यहाँ मुख्य विचार सरल तरीके से हैं।",
+                "points": [
+                    "इसका एक सरल अर्थ है।",
+                    "इसके महत्वपूर्ण भाग या चरण हैं।",
+                    "यह हमें समझने में मदद करता है।",
+                ],
+            },
+            "bn": {
+                "title": topic_title,
+                "summary": "এখানে মূল ধারণাগুলি সহজ উপায়ে রয়েছে।",
+                "points": [
+                    "এর একটি সহজ অর্থ আছে।",
+                    "এর গুরুত্বপূর্ণ অংশ বা ধাপ আছে।",
+                    "এটা আমাদের বুঝতে সাহায্য করে।",
+                ],
+            },
+            "ta": {
+                "title": topic_title,
+                "summary": "இங்கே முக்கிய எண்ணங்கள் எளிய வழியில் உள்ளன.",
+                "points": [
+                    "இதற்கு ஒரு எளிய பொருள் உள்ளது.",
+                    "இதில் முக்கியமான பகுதிகள் அல்லது படிகள் உள்ளன.",
+                    "இது நமக்கு புரிந்து கொள்ள உதவுகிறது.",
+                ],
+            },
+            "te": {
+                "title": topic_title,
+                "summary": "ఇక్కడ ప్రధాన ఆలోచనలు సరళమైన విధంగా ఉన్నాయి.",
+                "points": [
+                    "దీనికి ఒక సరళమైన అర్థం ఉంది.",
+                    "దీనికి ముఖ్యమైన భాగాలు లేదా దశలు ఉన్నాయి.",
+                    "ఇది మనకు అర్థం చేసుకోవడానికి సహాయపడుతుంది.",
+                ],
+            },
+            "en": {
+                "title": topic_title,
+                "summary": "Here are the main ideas in a simple way.",
+                "points": [
+                    "It has a simple meaning.",
+                    "It has important parts or steps.",
+                    "It helps us understand how something works.",
+                ],
+            },
+        }
+        
+        explainer = fallback_by_lang.get(lang_code, fallback_by_lang["en"])
+
+    # 7️⃣ Safety check on generated dialogue and validate dialogue exists
     for scene in storyboard["scenes"]:
-        if not is_safe(scene["dialogue"]):
+        # Validate dialogue exists and is not empty
+        dialogue = scene.get("dialogue", "").strip()
+        if not dialogue:
+            print(f"⚠️ Warning: Empty dialogue in scene {scene.get('scene', 'unknown')}, skipping")
+            scene["dialogue"] = "I'm sorry, I couldn't generate a response for this scene."
+        elif not is_safe(dialogue):
             return {
                 "error": "Generated content unsafe"
             }
+        else:
+            # Ensure dialogue is set
+            scene["dialogue"] = dialogue
 
-    # 8️⃣ TTS per scene
+    # 8️⃣ TTS is handled by frontend browser TTS - skip backend TTS generation
+    # Frontend uses Web Speech API for better voice quality and language matching
     for scene in storyboard["scenes"]:
-        try:
-            scene["audio"] = await asyncio.wait_for(
-                asyncio.to_thread(generate_tts, scene["dialogue"], language),
-                timeout=tts_timeout_s,
-            )
-        except TimeoutError as e:
-            raise TimeoutError(f"TTS timed out after {tts_timeout_s:.0f}s") from e
+        # Don't generate audio - frontend handles TTS
+        scene["audio"] = ""  # Empty string indicates frontend should handle TTS
         scene["duration"] = 4
         scene["character"] = "kid_avatar"
 
@@ -79,6 +184,7 @@ async def process_audio(audio_file, language: str = "en"):
         "language": language,
         "original_text": text,
         "intent": intent,
+        "explainer": explainer,
         "scenes": storyboard["scenes"]
     }
 

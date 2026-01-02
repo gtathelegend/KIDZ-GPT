@@ -1,6 +1,7 @@
 from typing import Any, Dict
 import httpx
 import json
+import re
 
 from models.schemas import IntentSchema
 
@@ -11,13 +12,24 @@ class IntentAgent:
         self.model = "gemma3:1b"
 
     async def _extract_intent_from_ollama(self, text: str) -> Dict[str, Any]:
-        prompt = f"""
-        Extract the topic, question type, and difficulty from the following text.
-        The text is: "{text}"
-        Return a JSON object with the following keys: "topic", "question_type", "difficulty".
-        The question_type should be one of "general", "why", "what", "how", "when", "where", "who".
-        The difficulty should be "child".
-        """
+        prompt = f"""You are an intent extractor for a kids learning app.
+
+Task: Read the child's utterance and extract:
+- topic: a short noun phrase (2-6 words) describing the core subject.
+- question_type: one of [general, what, why, how, when, where, who].
+- difficulty: always "child".
+
+Rules:
+- Prefer the most specific topic (e.g., "phases of the Moon" not "space").
+- If multiple topics are mentioned, pick the one that the child is mainly asking about.
+- If the sentence is a statement, use question_type "general".
+- Output MUST be valid JSON only. No markdown, no extra keys.
+
+Utterance: "{text}"
+
+Return exactly:
+{{"topic":"...","question_type":"...","difficulty":"child"}}
+"""
         
         data = {
             "model": self.model,
@@ -34,13 +46,7 @@ class IntentAgent:
                 # The response from ollama when not streaming is a single json object
                 # with a "response" key that contains the json string.
                 response_content = response_json.get("response", "{}")
-                
-                # Clean up the response content to be valid JSON
-                # It might be wrapped in markdown json ```json ... ```
-                if response_content.startswith("```json"):
-                    response_content = response_content[7:-3].strip()
-
-                intent_data = json.loads(response_content)
+                intent_data = self._parse_ollama_json(response_content)
                 
                 # Ensure the schema is valid before returning
                 schema_obj = IntentSchema(**intent_data)
@@ -54,6 +60,31 @@ class IntentAgent:
             except Exception as e:
                 print(f"An unexpected error occurred: {e}")
                 return {"topic": text, "question_type": "general", "difficulty": "child"}
+
+    def _parse_ollama_json(self, response_content: Any) -> Dict[str, Any]:
+        if isinstance(response_content, dict):
+            return response_content
+
+        raw = str(response_content or "").strip()
+
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+            raw = re.sub(r"\s*```$", "", raw)
+            raw = raw.strip()
+
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            raw = raw[start : end + 1]
+
+        raw = (
+            raw.replace("“", '"')
+            .replace("”", '"')
+            .replace("’", "'")
+            .replace("‘", "'")
+        )
+
+        return json.loads(raw)
 
 
     async def extract_intent(self, text: str, language: str = "en") -> Dict[str, Any]:
@@ -76,13 +107,24 @@ async def extract_intent(text: str, language: str = "en") -> Dict[str, Any]:
 # A non-async version for parts of the app that are not async
 def extract_intent_sync(text: str, language: str = "en") -> Dict[str, Any]:
     agent = IntentAgent()
-    prompt = f"""
-    Extract the topic, question type, and difficulty from the following text.
-    The text is: "{text}"
-    Return a JSON object with the following keys: "topic", "question_type", "difficulty".
-    The question_type should be one of "general", "why", "what", "how", "when", "where", "who".
-    The difficulty should be "child".
-    """
+    prompt = f"""You are an intent extractor for a kids learning app.
+
+Task: Read the child's utterance and extract:
+- topic: a short noun phrase (2-6 words) describing the core subject.
+- question_type: one of [general, what, why, how, when, where, who].
+- difficulty: always "child".
+
+Rules:
+- Prefer the most specific topic (e.g., "phases of the Moon" not "space").
+- If multiple topics are mentioned, pick the one that the child is mainly asking about.
+- If the sentence is a statement, use question_type "general".
+- Output MUST be valid JSON only. No markdown, no extra keys.
+
+Utterance: "{text}"
+
+Return exactly:
+{{"topic":"...","question_type":"...","difficulty":"child"}}
+"""
     data = {
         "model": agent.model,
         "prompt": prompt,
@@ -94,9 +136,22 @@ def extract_intent_sync(text: str, language: str = "en") -> Dict[str, Any]:
         response.raise_for_status()
         response_json = response.json()
         response_content = response_json.get("response", "{}")
-        if response_content.startswith("```json"):
-            response_content = response_content[7:-3].strip()
-        intent_data = json.loads(response_content)
+        raw = str(response_content or "").strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+            raw = re.sub(r"\s*```$", "", raw)
+            raw = raw.strip()
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            raw = raw[start : end + 1]
+        raw = (
+            raw.replace("“", '"')
+            .replace("”", '"')
+            .replace("’", "'")
+            .replace("‘", "'")
+        )
+        intent_data = json.loads(raw)
         schema_obj = IntentSchema(**intent_data)
         if hasattr(schema_obj, "model_dump"):
             return schema_obj.model_dump()

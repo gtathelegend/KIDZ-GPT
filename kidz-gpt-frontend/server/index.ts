@@ -85,14 +85,37 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+  
+  // Detect platform for cross-platform compatibility
+  // On Windows, binding to 0.0.0.0 with certain options can cause ENOTSUP errors
+  // Use localhost on Windows, 0.0.0.0 on other platforms for network access
+  const isWindows = process.platform === "win32";
+  const host = isWindows ? "localhost" : "0.0.0.0";
+  
+  // Handle server errors gracefully
+  httpServer.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      log(`❌ Port ${port} is already in use. Please choose a different port.`);
+      process.exit(1);
+    } else if (err.code === "ENOTSUP") {
+      // If 0.0.0.0 fails, try localhost as fallback
+      if (host === "0.0.0.0") {
+        log(`⚠️  Cannot bind to 0.0.0.0:${port}. Trying localhost instead...`);
+        httpServer.listen(port, "localhost", () => {
+          log(`✅ serving on localhost:${port}`);
+        });
+      } else {
+        log(`❌ Error binding to ${host}:${port}: ${err.message}`);
+        process.exit(1);
+      }
+    } else {
+      log(`❌ Server error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+  
+  // Start the server
+  httpServer.listen(port, host, () => {
+    log(`✅ serving on ${host}:${port}`);
+  });
 })();

@@ -36,7 +36,14 @@ async def transcribe_audio(audio_file, language: str = "en"):
         raise ValueError("Received empty audio file")
 
     files = {'file': (filename, audio_bytes, content_type or 'audio/webm')}
-    data = {'language': language}
+
+    normalized_language = (language or "").strip().lower()
+    # whisper_server auto-detects when language == "en" (it sends language=None to Whisper).
+    # Accept "auto" from the frontend and map it to "en" for that behavior.
+    if normalized_language in ["", "auto", "detect", "unknown"]:
+        normalized_language = "en"
+
+    data = {'language': normalized_language}
     
     async with httpx.AsyncClient(timeout=180.0) as client:
         try:
@@ -44,12 +51,18 @@ async def transcribe_audio(audio_file, language: str = "en"):
             response.raise_for_status()
             result = response.json()
             transcribed_text = result.get("text", "").strip()
+            detected_language = result.get("language", None)
+            
+            # Log detected language from Whisper
+            if detected_language and detected_language != language:
+                print(f"🔍 Whisper detected language: {detected_language} (requested: {language})")
             
             # Check if transcription failed
             if not transcribed_text or transcribed_text.lower() in ["error in transcription.", "error"]:
                 print(f"Warning: Transcription may have failed. Result: {transcribed_text}")
             
-            return transcribed_text
+            # Return tuple with text and detected language
+            return (transcribed_text, detected_language)
         except httpx.TimeoutException as e:
             print(f"Transcription request timed out: {e}")
             raise TimeoutError("Transcription service timed out")

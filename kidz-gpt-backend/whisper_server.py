@@ -71,12 +71,22 @@ async def transcribe_audio(file: UploadFile = File(...), language: str = "en"):
         device = _get_whisper_device()
         model = _get_whisper_model()
         
-        # Run transcription in a separate thread to avoid blocking the event loop
+        # Run transcription in a separate thread to avoid blocking the event loop.
+        # If language is "en" (default) OR "auto", let Whisper auto-detect.
+        normalized_language = (language or "").strip().lower()
+        transcribe_language = None if normalized_language in ["en", "auto", "detect", "unknown", ""] else normalized_language
         result = await asyncio.to_thread(
-            model.transcribe, path, fp16=(device == "cuda"), language=language
+            model.transcribe, path, fp16=(device == "cuda"), language=transcribe_language
         )
         
-        return {"text": result["text"]}
+        # Return both text and detected language
+        detected_lang = result.get("language", language)
+        print(f"🔍 Whisper detected language: {detected_lang} (requested: {language})")
+        
+        return {
+            "text": result["text"],
+            "language": detected_lang
+        }
     finally:
         if path and os.path.exists(path):
             try:
