@@ -539,6 +539,86 @@ const cleanQuery = (query: string): string => {
     return cleanedWords.join(" ") || query;
   };
 
+  const hashToIndex = (input: string, modulo: number): number => {
+    const s = String(input || "");
+    let hash = 0;
+    for (let i = 0; i < s.length; i++) {
+      hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+    }
+    const n = Math.abs(hash);
+    return modulo > 0 ? n % modulo : 0;
+  };
+
+  const pickEmojiForTopic = (topic: string): string => {
+    const t = String(topic || "").toLowerCase();
+    const rules: Array<[RegExp, string]> = [
+      [/dino|dinosaur|jurassic/, "🦖"],
+      [/ocean|sea|marine|whale|fish|coral/, "🐳"],
+      [/space|planet|solar|galaxy|astron/, "🪐"],
+      [/volcano|lava|eruption/, "🌋"],
+      [/rainforest|jungle|forest|tree/, "🌴"],
+      [/insect|bug|ant|bee|butterfly/, "🐞"],
+      [/body|heart|brain|skeleton|blood/, "🫀"],
+      [/robot|ai|machine|computer/, "🤖"],
+      [/weather|rain|storm|cloud|wind|snow/, "⛈️"],
+      [/music|song|instrument|piano|guitar/, "🎵"],
+      [/sport|football|soccer|cricket|tennis/, "⚽"],
+      [/egypt|pharaoh|pyramid/, "🏺"],
+      [/magic|trick|wizard/, "🎩"],
+      [/castle|king|queen|knight/, "🏰"],
+      [/antarctica|penguin|ice|polar/, "🐧"],
+    ];
+
+    for (const [re, emoji] of rules) {
+      if (re.test(t)) return emoji;
+    }
+    return "✨";
+  };
+
+  const buildIllustrationDataUrl = (topic: string): string => {
+    // Reuse the existing palette already used across the UI.
+    const gradients: Array<[string, string]> = [
+      ["#FF6B6B", "#FFA500"],
+      ["#2196F3", "#81D4FA"],
+      ["#4CAF50", "#81C784"],
+      ["#9C27B0", "#CE93D8"],
+      ["#FFD700", "#FFE082"],
+      ["#FF5722", "#FFAB91"],
+    ];
+    const idx = hashToIndex(topic, gradients.length);
+    const [c1, c2] = gradients[idx] || gradients[0];
+    const emoji = pickEmojiForTopic(topic);
+    const title = String(topic || "").trim() || "Let’s learn!";
+    const safeTitle = title.length > 36 ? `${title.slice(0, 33)}...` : title;
+
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${c1}"/>
+      <stop offset="100%" stop-color="${c2}"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <rect width="800" height="450" rx="36" fill="url(#bg)"/>
+  <circle cx="690" cy="80" r="90" fill="#ffffff" opacity="0.18"/>
+  <circle cx="120" cy="370" r="120" fill="#ffffff" opacity="0.12"/>
+
+  <g filter="url(#shadow)">
+    <rect x="70" y="80" width="660" height="290" rx="30" fill="#ffffff" opacity="0.92"/>
+  </g>
+
+  <text x="400" y="215" text-anchor="middle" font-size="96" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial">${emoji}</text>
+  <text x="400" y="295" text-anchor="middle" font-size="36" font-weight="800" fill="#111827" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial">${safeTitle}</text>
+  <text x="400" y="335" text-anchor="middle" font-size="20" font-weight="700" fill="#374151" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial">Tap the mic and ask more!</text>
+</svg>`;
+
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  };
+
   const fetchTopicImage = async (query: string, langHint?: string): Promise<string | null> => {
     const q = (query || "").trim();
     if (!q) return null;
@@ -691,10 +771,10 @@ const cleanQuery = (query: string): string => {
       const page = pages?.[0];
       const imageUrl = typeof page?.thumbnail?.source === "string" ? page.thumbnail.source : "";
       if (imageUrl && (await isSafeExplanationImage(imageUrl))) return imageUrl;
-      return null;
+      return buildIllustrationDataUrl(q);
     } catch (e) {
       console.error(`❌ Topic image fetch error for "${translatedQuery}":`, e);
-      return null;
+      return buildIllustrationDataUrl(q);
     }
   };
 
@@ -1465,7 +1545,7 @@ const cleanQuery = (query: string): string => {
                   } else {
                     el.scrollBy({ left: 240, behavior: 'smooth' });
                   }
-                }, 3000);
+                }, 1500);
                 
                 el.addEventListener('mouseenter', () => clearInterval(scrollInterval));
                 el.addEventListener('mouseleave', () => {

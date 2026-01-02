@@ -115,13 +115,15 @@ async def create_quiz(request: dict):
         if not topic and not explainer:
             raise HTTPException(status_code=400, detail="Missing topic or explainer")
         
-        questions = await generate_quiz(
+        result = await generate_quiz(
             topic=topic,
             explainer=explainer,
             language=language
         )
-        
-        return {"questions": questions}
+
+        # quiz_agent.generate_quiz returns: {"questions": [ ... ]}
+        # Frontend expects: {"questions": [ ... ]}
+        return {"questions": (result or {}).get("questions", [])}
     except Exception as e:
         print("❌ ERROR OCCURRED during quiz generation")
         traceback.print_exc()

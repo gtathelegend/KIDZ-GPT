@@ -19,3 +19,9 @@ class ExplainerSchema(BaseModel):
     title: str
     summary: str
     points: List[str]
+
+
+class QuizQuestion(BaseModel):
+    question: str
+    options: List[str]
+    correctAnswer: int
