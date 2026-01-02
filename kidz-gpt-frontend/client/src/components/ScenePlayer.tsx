@@ -1,47 +1,44 @@
 import { Canvas } from "@react-three/fiber";
-import { useEffect, useMemo, useState } from "react";
 import Boy from "./characters/Boy";
+import { useMemo } from "react";
 
 type Scene = {
   scene_id?: number;
-  animation: {
-    action: string;
+  animation?: {
+    action?: string;
     loop?: boolean;
   };
-  dialogue: {
-    text: string;
+  dialogue?: {
+    text?: string;
   };
-  duration: number;
+  // Allow backend storyboard shape too
+  scene?: number;
+  dialogue_text?: string;
+  dialogueString?: string;
+  dialogueRaw?: unknown;
 };
 
 type ScenePlayerProps = {
   scenes: Scene[];
+  active: boolean;
+  playing: boolean;
 };
 
-export default function ScenePlayer({ scenes }: ScenePlayerProps) {
+export default function ScenePlayer({
+  scenes,
+  active,
+  playing,
+}: ScenePlayerProps) {
   const safeScenes = useMemo(() => scenes ?? [], [scenes]);
-  const [currentScene, setCurrentScene] = useState(0);
-
-  useEffect(() => {
-    if (safeScenes.length === 0) return;
-    if (currentScene >= safeScenes.length) setCurrentScene(0);
-  }, [safeScenes.length, currentScene]);
-
-  useEffect(() => {
-    if (safeScenes.length === 0) return;
-
-    const scene = safeScenes[currentScene];
-    const ms = Math.max(0.25, Number(scene?.duration ?? 0)) * 1000;
-
-    const timer = window.setTimeout(() => {
-      setCurrentScene((prev) => (prev + 1) % safeScenes.length);
-    }, ms);
-
-    return () => window.clearTimeout(timer);
-  }, [currentScene, safeScenes]);
-
-  const scene = safeScenes[currentScene];
+  const scene = safeScenes[0];
   if (!scene) return null;
+
+  const action = scene.animation?.action || "neutral";
+  const loop = scene.animation?.loop ?? true;
+  const subtitle =
+    scene.dialogue?.text ||
+    (typeof (scene as any).dialogue === "string" ? (scene as any).dialogue : "") ||
+    "";
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -50,11 +47,16 @@ export default function ScenePlayer({ scenes }: ScenePlayerProps) {
           <ambientLight intensity={0.6} />
           <directionalLight position={[5, 5, 5]} intensity={1} />
 
-          <Boy action={scene.animation.action} loop={scene.animation.loop ?? true} />
+          <Boy
+            action={action}
+            loop={loop}
+            active={active}
+            playing={playing}
+          />
         </Canvas>
       </div>
 
-      <div className="subtitle">{scene.dialogue.text}</div>
+      <div className="subtitle">{subtitle}</div>
     </div>
   );
 }

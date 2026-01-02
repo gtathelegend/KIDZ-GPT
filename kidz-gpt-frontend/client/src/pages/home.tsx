@@ -31,6 +31,41 @@ type BackendExplainer = {
   points?: string[];
 };
 
+type Scene = {
+  scene_id?: number;
+  animation?: {
+    action?: string;
+    loop?: boolean;
+  };
+  dialogue?: {
+    text?: string;
+  };
+  duration?: number;
+};
+
+const normalizeTo3DScenes = (input: any): Scene[] => {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((s, idx): Scene => {
+      const dialogueText =
+        (s?.dialogue && typeof s.dialogue === "object" ? s.dialogue.text : undefined) ||
+        (typeof s?.dialogue === "string" ? s.dialogue : undefined) ||
+        (typeof s?.text === "string" ? s.text : undefined) ||
+        "";
+
+      return {
+        scene_id: s?.scene_id ?? s?.scene ?? idx + 1,
+        animation: {
+          action: s?.animation?.action ?? "neutral",
+          loop: s?.animation?.loop ?? true,
+        },
+        dialogue: { text: dialogueText },
+        duration: Number(s?.duration ?? 4),
+      };
+    })
+    .filter((s) => Boolean((s.dialogue?.text || "").trim()));
+};
+
 export default function Home() {
   const [isListening, setIsListening] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(
@@ -87,6 +122,10 @@ export default function Home() {
       text: "Some are super hot like Venus 🔥, and some are freezing cold like Neptune! ❄️",
     },
   ]);
+  const [scenes, setScenes] = useState<Scene[]>(sceneData.scenes);
+  const [isSceneActive, setIsSceneActive] = useState(false);
+  const [isScenePlaying, setIsScenePlaying] = useState(false);
+  const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
 
   // Auto-scroll to bottom when chat history changes (with debounce to prevent glitches)
   useEffect(() => {
@@ -406,16 +445,51 @@ export default function Home() {
       const resp = await fetch(`/topic-image?query=${encodeURIComponent(q)}`);
       if (!resp.ok) {
         console.warn(`⚠️ Topic image fetch failed: ${resp.status} ${resp.statusText}`);
-        return null;
-      }
-      const data = await resp.json();
-      const imageUrl = typeof data?.imageUrl === "string" ? data.imageUrl : "";
-      if (imageUrl) {
-        console.log(`✅ Topic image found: ${imageUrl.substring(0, 80)}...`);
+        // continue to client-side fallback
       } else {
-        console.warn(`⚠️ No image URL in response for "${q}"`);
+        const contentType = resp.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          const data = await resp.json();
+          const imageUrl = typeof data?.imageUrl === "string" ? data.imageUrl : "";
+          if (imageUrl) {
+            console.log(`✅ Topic image found: ${imageUrl.substring(0, 80)}...`);
+          } else {
+            console.warn(`⚠️ No image URL in response for "${q}"`);
+          }
+          return imageUrl ? imageUrl : null;
+        }
+
+        // If we got HTML (e.g., Vite dev server index.html), avoid JSON parsing.
+        const preview = await resp.text().catch(() => "");
+        if (preview.includes("<!DOCTYPE") || preview.includes("<html")) {
+          // This typically happens when running the client-only dev server (vite) without the express server.
+          // It's not fatal because we fall back to Wikipedia directly.
+          if (!(window as any).__topicImageHtmlLogged) {
+            console.info("ℹ️ /topic-image returned HTML; using client-side Wikipedia fallback");
+            (window as any).__topicImageHtmlLogged = true;
+          }
+        }
       }
-      return imageUrl ? imageUrl : null;
+
+      // Client-side fallback: call Wikipedia APIs directly (CORS-friendly).
+      const searchUrl = new URL("https://en.wikipedia.org/w/api.php");
+      searchUrl.searchParams.set("action", "query");
+      searchUrl.searchParams.set("format", "json");
+      searchUrl.searchParams.set("origin", "*");
+      searchUrl.searchParams.set("generator", "search");
+      searchUrl.searchParams.set("gsrsearch", q);
+      searchUrl.searchParams.set("gsrlimit", "1");
+      searchUrl.searchParams.set("prop", "pageimages");
+      searchUrl.searchParams.set("pithumbsize", "800");
+
+      const searchResp = await fetch(searchUrl.toString());
+      if (!searchResp.ok) return null;
+      const searchData = await searchResp.json().catch(() => null);
+      const pagesObj = searchData?.query?.pages || {};
+      const pages = Object.values(pagesObj) as any[];
+      const page = pages?.[0];
+      const imageUrl = typeof page?.thumbnail?.source === "string" ? page.thumbnail.source : "";
+      return imageUrl || null;
     } catch (e) {
       console.error(`❌ Topic image fetch error for "${q}":`, e);
       return null;
@@ -585,12 +659,23 @@ export default function Home() {
             }
 
             // Process scenes sequentially
-            if (data.scenes && Array.isArray(data.scenes)) {
-              for (let i = 0; i < data.scenes.length; i++) {
-                const scene = data.scenes[i];
+            const incoming3D =
+              (data?.animation_scenes && Array.isArray(data.animation_scenes)
+                ? data.animation_scenes
+                : null) ||
+              (data?.scenes && Array.isArray(data.scenes) ? data.scenes : null);
+
+            const normalizedScenes = normalizeTo3DScenes(incoming3D);
+
+            if (normalizedScenes.length > 0) {
+              setScenes(normalizedScenes);
+              setIsSceneActive(true);
+              for (let i = 0; i < normalizedScenes.length; i++) {
+                const scene = normalizedScenes[i];
+                setCurrentSceneIndex(i);
                 
                 // Validate dialogue exists and is not empty
-                const dialogue = (scene.dialogue || "").trim();
+                const dialogue = (scene.dialogue?.text || "").trim();
                 if (!dialogue) {
                   console.warn(`⚠️ Skipping scene ${i + 1}: empty dialogue`);
                   continue;
@@ -611,6 +696,7 @@ export default function Home() {
 
                 // Highlight this dialogue while speaking
                 setSpeakingDialogueIndex(dialogueIndex);
+                setIsScenePlaying(true);
 
                 // Runtime TTS in the browser using the detected language
                 // This ensures audio matches the input language
@@ -619,12 +705,14 @@ export default function Home() {
 
                 // Remove highlight after speaking
                 setSpeakingDialogueIndex(null);
+                setIsScenePlaying(false);
 
                 // Small delay between scenes for better UX
-                if (i < data.scenes.length - 1) {
+                if (i < normalizedScenes.length - 1) {
                   await new Promise((resolve) => setTimeout(resolve, 500));
                 }
               }
+              setIsSceneActive(false);
             }
 
             // Update the topic explainer section (image + summary) and scroll to it
@@ -866,7 +954,11 @@ export default function Home() {
 
               {/* Main Character (3D) */}
               <div className="relative z-10 w-full h-full px-4 py-4">
-                <ScenePlayer scenes={sceneData.scenes} />
+                <ScenePlayer
+                  scenes={scenes.length > 0 ? [scenes[currentSceneIndex]] : []}
+                  active={isSceneActive}
+                  playing={isScenePlaying}
+                />
               </div>
 
               {/* Reward Badge (Floating) */}

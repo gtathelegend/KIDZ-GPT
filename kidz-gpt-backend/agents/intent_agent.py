@@ -2,16 +2,27 @@ from typing import Any, Dict
 import httpx
 import json
 import re
+import os
 
 from models.schemas import IntentSchema
 
 
 class IntentAgent:
     def __init__(self):
-        self.ollama_url = "http://localhost:11434/api/generate"
-        self.model = "gemma3:1b"
+        self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+        # Allow a dedicated intent model; fallback to the general model.
+        self.model = os.getenv("OLLAMA_MODEL_INTENT", os.getenv("OLLAMA_MODEL", "deepseek-r1:8b"))
 
-    async def _extract_intent_from_ollama(self, text: str) -> Dict[str, Any]:
+    async def _extract_intent_from_ollama(self, text: str, language: str = "en") -> Dict[str, Any]:
+        lang_code = (language or "en").strip().lower().split("-")[0]
+        lang_name = {
+            "en": "English",
+            "hi": "Hindi (हिंदी)",
+            "bn": "Bengali (বাংলা)",
+            "ta": "Tamil (தமிழ்)",
+            "te": "Telugu (తెలుగు)",
+        }.get(lang_code, language or "English")
+
         prompt = f"""You are an intent extractor for a kids learning app.
 
 Task: Read the child's utterance and extract:
@@ -20,6 +31,8 @@ Task: Read the child's utterance and extract:
 - difficulty: always "child".
 
 Rules:
+- The child is speaking in {lang_name}. The topic MUST be written in {lang_name}.
+- Do NOT translate the topic to another language.
 - Prefer the most specific topic (e.g., "phases of the Moon" not "space").
 - If multiple topics are mentioned, pick the one that the child is mainly asking about.
 - If the sentence is a statement, use question_type "general".
@@ -95,7 +108,7 @@ Return exactly:
         if not text:
             return {"topic": "", "question_type": "general", "difficulty": "child"}
 
-        return await self._extract_intent_from_ollama(text)
+        return await self._extract_intent_from_ollama(text, language)
 
 
 _default_agent = IntentAgent()

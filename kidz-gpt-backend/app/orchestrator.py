@@ -7,7 +7,8 @@ from services.safety_service import is_safe
 from services.cache_service import get, set
 from services.animation_script_service import build_animation_scenes
 from agents.intent_agent import extract_intent
-from agents.script_agent import generate_storyboard
+from agents.animation_agent import generate_animation_scenes
+from agents.script_agent import generate_storyboard_with_question
 # Non-dialogue explanation + key points for the topic section
 from agents.explain_agent import generate_explainer
 # TTS is handled by frontend browser TTS - no need to import generate_tts
@@ -91,7 +92,7 @@ async def process_audio(audio_file, language: str = "en"):
     intent = await extract_intent(text, language)
 
     # 6️⃣ Storyboard generation
-    storyboard = await generate_storyboard(intent, language)
+    storyboard = await generate_storyboard_with_question(intent, question=text, language=language)
 
     # NOTE: We no longer do a separate translation step.
     # The storyboard + explainer should be generated directly in the user's spoken language
@@ -184,11 +185,22 @@ async def process_audio(audio_file, language: str = "en"):
     # 8.5️⃣ Build 3D animation script based on the response + explainer
     animation_scenes = []
     try:
-        animation_scenes = build_animation_scenes(
+        topic = (intent or {}).get("topic") or ""
+        # Prefer LLM-directed animation plan using the predefined actions.
+        animation_scenes = await generate_animation_scenes(
+            topic=topic,
+            question=text,
             storyboard_scenes=storyboard.get("scenes", []),
-            explainer=explainer,
             language=language,
         )
+
+        # Fallback to deterministic heuristic mapping.
+        if not animation_scenes:
+            animation_scenes = build_animation_scenes(
+                storyboard_scenes=storyboard.get("scenes", []),
+                explainer=explainer,
+                language=language,
+            )
     except Exception as e:
         print(f"⚠️ Animation script generation failed: {e}")
         animation_scenes = []

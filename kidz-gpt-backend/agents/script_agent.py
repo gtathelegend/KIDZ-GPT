@@ -2,17 +2,20 @@ from typing import Any, Dict
 import httpx
 import json
 import re
+import os
 
 from models.schemas import StoryboardSchema
 
 
 class ScriptAgent:
     def __init__(self):
-        self.ollama_url = "http://localhost:11434/api/generate"
-        self.model = "gemma3:1b"
+        self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+        # Allow a dedicated storyboard model; fallback to the general model.
+        self.model = os.getenv("OLLAMA_MODEL_SCRIPT", os.getenv("OLLAMA_MODEL", "gemma3:1b"))
 
-    async def _generate_storyboard_from_ollama(self, intent: Dict[str, Any], language: str) -> Dict[str, Any]:
+    async def _generate_storyboard_from_ollama(self, intent: Dict[str, Any], language: str, question: str = "") -> Dict[str, Any]:
         topic = (intent or {}).get("topic") or "a random topic"
+        question = (question or "").strip()
 
         lang_code = (language or "en").strip().lower().split("-")[0]
         lang_name = {
@@ -31,13 +34,19 @@ class ScriptAgent:
         """
 
         user_prompt = f"""
-        Generate a short, simple storyboard for a child about "{topic}".
+        Generate a short, simple storyboard for a child.
+
+        Topic: "{topic}"
+        Child's question: "{question}" 
 
         IMPORTANT:
         - The storyboard must be in {lang_name}.
+        - The storyboard MUST answer the child's question directly.
+        - Stay strictly on the topic and question. Do NOT introduce unrelated facts.
         - The dialogue must be very simple and easy for a young child to understand.
         - The storyboard should directly explain the topic. Do not get sidetracked.
         - The number of scenes should be between 2 and 4.
+        - Each dialogue line must be one short sentence (max ~18 words).
         - Do NOT include any English if the requested language is not English.
 
         Return ONLY a valid JSON object.
@@ -226,11 +235,11 @@ class ScriptAgent:
             
         return {"scenes": [{"scene": 1, "background": "day_sky", "dialogue": f"{topic} is really cool! It helps us understand how the world works."}, {"scene": 2, "background": "wrap_up", "dialogue": f"Remember: {topic} means a simple main idea plus a few important points. That’s the key!"}]}
 
-    async def generate_storyboard(self, intent: Dict[str, Any], language: str = "en") -> Dict[str, Any]:
+    async def generate_storyboard(self, intent: Dict[str, Any], language: str = "en", question: str = "") -> Dict[str, Any]:
         if not intent:
             return self._heuristic_storyboard({"topic": ""}, language)
 
-        result = await self._generate_storyboard_from_ollama(intent, language)
+        result = await self._generate_storyboard_from_ollama(intent, language, question)
         # Always return schema-compatible output to the frontend.
         try:
             schema_obj = StoryboardSchema(**result)
@@ -246,3 +255,7 @@ _default_agent = ScriptAgent()
 
 async def generate_storyboard(intent: Dict[str, Any], language: str = "en") -> Dict[str, Any]:
     return await _default_agent.generate_storyboard(intent, language)
+
+# Backward-compatible helper that allows passing the raw question text.
+async def generate_storyboard_with_question(intent: Dict[str, Any], question: str, language: str = "en") -> Dict[str, Any]:
+    return await _default_agent.generate_storyboard(intent, language, question)

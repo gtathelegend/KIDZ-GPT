@@ -1,22 +1,33 @@
 import { useGLTF, useAnimations } from "@react-three/drei";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
 type BoyProps = {
   action?: string;
   loop?: boolean;
+  active?: boolean;
+  playing?: boolean;
 };
 
-export default function Boy({ action = "idle_neutral", loop = true }: BoyProps) {
+export default function Boy({
+  action = "idle",
+  loop = true,
+  active = false,
+  playing = false,
+}: BoyProps) {
   const { scene, animations } = useGLTF("/assets/models/boy/boy.glb");
   const { actions } = useAnimations(animations, scene);
+  const previousAction = useRef<THREE.AnimationAction | null>(null);
 
   useEffect(() => {
     const clipAction = actions?.[action];
-
     if (!clipAction) {
       console.warn(`Animation ${action} not found`);
       return;
+    }
+
+    if (previousAction.current && previousAction.current !== clipAction) {
+      previousAction.current.fadeOut(0.25);
     }
 
     if (loop) {
@@ -27,14 +38,32 @@ export default function Boy({ action = "idle_neutral", loop = true }: BoyProps) 
       clipAction.clampWhenFinished = true;
     }
 
+    clipAction.enabled = true;
+    clipAction.paused = !playing;
     clipAction.reset().fadeIn(0.25).play();
+    previousAction.current = clipAction;
 
     return () => {
       clipAction.fadeOut(0.25);
     };
-  }, [action, loop, actions]);
+  }, [action, loop, actions, playing]);
 
-  return <primitive object={scene} scale={1.2} position={[0, -1.5, 0]} />;
+  useEffect(() => {
+    const clipAction = actions?.[action];
+    if (!clipAction) return;
+
+    clipAction.enabled = true;
+    clipAction.paused = !playing;
+    if (playing) clipAction.play();
+  }, [playing, action, actions]);
+
+  return (
+    <primitive
+      object={scene}
+      scale={active ? 1.2 : 0}
+      position={[0, -1.5, 0]}
+    />
+  );
 }
 
 useGLTF.preload("/assets/models/boy/boy.glb");
