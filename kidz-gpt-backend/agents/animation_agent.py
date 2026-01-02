@@ -80,7 +80,7 @@ def _normalize_action(action: str) -> str:
 class AnimationAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model = os.getenv("OLLAMA_MODEL_ANIMATION", os.getenv("OLLAMA_MODEL", "gemma3:1b"))
+        self.model = os.getenv("OLLAMA_MODEL_ANIMATION", os.getenv("OLLAMA_MODEL", "gpt-oss:20b-cloud"))
 
     async def generate_animation_scenes(
         self,
@@ -107,44 +107,86 @@ class AnimationAgent:
                 dialogue_lines.append(d)
         dialogue_lines = dialogue_lines[:6]
 
-        system = (
-            "You are a creative animation director for a kids learning app. "
-            "You must map dialogue beats to a single 3D character's predefined animations."
-        )
+        system = """
+You are an animation director for a children's learning application.
 
-        prompt = f"""Create an engaging animated explanation for a child using ONLY the predefined character actions.
+Your responsibility is to convert educational dialogue beats into a sequence
+of animated scenes using ONE predefined 3D character.
 
-Language: {lang_name}
-Topic: {topic}
-Child's question: {question}
+You must choose the most appropriate predefined animation action
+for each dialogue line so that the character's movement matches the meaning.
 
-Available actions (MUST use EXACTLY one of these spellings):
+You do NOT create new animations.
+You do NOT invent new actions.
+You do NOT change the educational meaning of the dialogue.
+
+Your output will directly control a real-time Three.js character.
+Any incorrect action name or extra text will break the animation system.
+"""
+
+
+        prompt = f"""
+Create an animated explanation for a child by mapping dialogue beats
+to character animation actions.
+
+Language:
+{lang_name}
+
+Topic:
+{topic}
+
+Child's Question:
+{question}
+
+AVAILABLE CHARACTER ACTIONS
+(You MUST choose EXACTLY one action from this list for each scene):
 {json.dumps(VALID_ACTIONS, ensure_ascii=False)}
 
-Storyboard dialogue beats (use these as the core content; you may lightly rewrite to be more interactive, but keep the meaning):
+STORYBOARD DIALOGUE BEATS
+(These contain the educational content. You may slightly rewrite
+each line to sound friendly and engaging, but you MUST keep the meaning):
 {json.dumps(dialogue_lines, ensure_ascii=False)}
 
-Rules:
-- Output ONLY valid JSON. No markdown.
-- Output shape MUST be:
-  {{
+STRICT RULES:
+- Output ONLY valid JSON. No markdown, no explanations.
+- Use ONLY the actions listed above. Do NOT invent new actions.
+- Each scene MUST include exactly one animation action.
+- The animation action must match the intent of the dialogue line.
+- Keep dialogue.text short and simple (maximum 18 words).
+- Make the tone friendly, encouraging, and calm.
+- Do NOT ask new questions unless the original dialogue line is a question.
+- Do NOT add new facts or explanations.
+- Do NOT include personal references.
+- If the language is NOT English, do NOT use ANY English words.
+
+STRUCTURE RULES:
+- Number of scenes: 3 to 6.
+- scene_id must start at 1 and increase by 1.
+- duration must be a number between 2 and 5 (seconds).
+- loop should be:
+  - true for talking or thinking actions
+  - false for greeting, reacting, celebrating, or ending actions
+
+ACTION SELECTION GUIDELINES:
+- Use greeting actions for the first scene.
+- Use question actions when the dialogue expresses curiosity.
+- Use thinking or explaining actions for explanations.
+- Use celebration or positive reaction actions when praising or concluding.
+- Use ending actions for the final scene.
+
+OUTPUT FORMAT (MUST MATCH EXACTLY):
+{{
     "scenes": [
-      {{
-        "scene_id": 1,
-        "animation": {{"action": "hello|question|thinking|...", "loop": true|false}},
-        "dialogue": {{"text": "..."}},
-        "duration": 2.5
-      }}
+        {{
+            "scene_id": 1,
+            "animation": {{ "action": "...", "loop": true }},
+            "dialogue": {{ "text": "..." }},
+            "duration": 3
+        }}
     ]
-  }}
-- 3 to 6 scenes.
-- Every scene MUST include an animation action from the allowed list.
-- Make it interactive and fun (short encouragements, reactions), but keep it educational.
-- Keep each dialogue.text short (max ~18 words).
-- duration is seconds (2 to 5).
-- If language is not English: DO NOT use any English words.
-- Prefer action choices that match the line (e.g., hello at start, question when asking, thinking when explaining, claping to praise, bye at end).
+}}
 """
+
 
         data = {
             "model": self.model,

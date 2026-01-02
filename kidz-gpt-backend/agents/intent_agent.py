@@ -11,7 +11,7 @@ class IntentAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
         # Allow a dedicated intent model; fallback to the general model.
-        self.model = os.getenv("OLLAMA_MODEL_INTENT", os.getenv("OLLAMA_MODEL", "deepseek-r1:8b"))
+        self.model = os.getenv("OLLAMA_MODEL_INTENT", os.getenv("OLLAMA_MODEL", "gpt-oss:20b-cloud"))
 
     async def _extract_intent_from_ollama(self, text: str, language: str = "en") -> Dict[str, Any]:
         lang_code = (language or "en").strip().lower().split("-")[0]
@@ -23,24 +23,36 @@ class IntentAgent:
             "te": "Telugu (తెలుగు)",
         }.get(lang_code, language or "English")
 
-        prompt = f"""You are an intent extractor for a kids learning app.
+        prompt = f"""
+You are an intent and learning-context extractor for a children's learning platform.
 
-Task: Read the child's utterance and extract:
-- topic: a short noun phrase (2-6 words) describing the core subject.
+Your task is to read a child's spoken utterance and extract learning information
+that will help explain the topic in a simple, visual, child-friendly way.
+
+Extract the following fields:
+- topic: a short, clear noun phrase (2-6 words) that describes the main subject.
 - question_type: one of [general, what, why, how, when, where, who].
 - difficulty: always "child".
 
-Rules:
-- The child is speaking in {lang_name}. The topic MUST be written in {lang_name}.
+Guidelines:
+- The utterance is in {lang_name}. The topic MUST be written in {lang_name}.
 - Do NOT translate the topic to another language.
-- Prefer the most specific topic (e.g., "phases of the Moon" not "space").
-- If multiple topics are mentioned, pick the one that the child is mainly asking about.
-- If the sentence is a statement, use question_type "general".
-- Output MUST be valid JSON only. No markdown, no extra keys.
+- Choose the most specific learning topic possible
+  (example: "why the Moon is visible at night" instead of "space").
+- If multiple ideas appear, choose the one the explanation should focus on.
+- If the utterance is not a question, use question_type "general".
+- Ignore filler words, grammar mistakes, and unclear phrasing.
+- Do NOT include any personal details or assumptions about the child.
 
-Utterance: "{text}"
+Output rules:
+- Output ONLY valid JSON.
+- Do NOT include explanations, comments, or extra fields.
+- The JSON must be suitable for generating a child-level explanation.
 
-Return exactly:
+Utterance:
+"{text}"
+
+Return exactly this JSON structure:
 {{"topic":"...","question_type":"...","difficulty":"child"}}
 """
         

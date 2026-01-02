@@ -1,6 +1,7 @@
 import React from "react";
 import { Link } from "wouter";
 import { Play, ChevronRight, Sparkles, Brain, Send, Star, Volume2 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import logoImg from "@assets/kidz-gpt_1767288550163.jpeg";
 import aiLearningImg from "@assets/generated_images/interactive_ai_learning_animation_for_kids.png";
 import scienceChar from "@assets/generated_images/fun_educational_science_character.png";
@@ -12,11 +13,100 @@ import drawingImg from "@assets/generated_images/creative_art_and_drawing_illust
 import jackInBoxImg from "@assets/generated_images/fun_3d_toy_jack-in-the-box.png";
 
 export default function Landing() {
+  const blogPosts = [
+    {
+      id: "better-questions",
+      title: "Helping kids ask better questions",
+      desc: "Simple prompts that unlock deeper curiosity.",
+      image: solarSystemImg,
+      accent: "bg-[var(--cta-explore)]",
+      content: {
+        intro:
+          "Kids learn faster when they ask clear, curious questions. Here are a few easy ways to guide them (without giving the answer away).",
+        bullets: [
+          "Start with “What do you notice?” to warm up their thinking.",
+          "Try “Why do you think that happens?” to invite reasoning.",
+          "Ask “What if we change one thing?” to explore cause-and-effect.",
+          "Finish with “How could we check?” to build a science mindset.",
+        ],
+        outro:
+          "Tip: praise the question, not just the answer — it builds confidence and curiosity.",
+      },
+    },
+    {
+      id: "screen-time-smarter",
+      title: "Screen time, but smarter",
+      desc: "How to use interactive learning responsibly.",
+      image: drawingImg,
+      accent: "bg-[var(--accent-soft-purple)]",
+      content: {
+        intro:
+          "Not all screen time is the same. Interactive learning can be a win when it's short, guided, and balanced.",
+        bullets: [
+          "Keep sessions short (5-10 minutes) for younger kids.",
+          "Use “1 question, 1 takeaway” so the lesson feels complete.",
+          "Ask your child to explain it back in their own words.",
+          "Pair with an offline activity (draw it, act it out, build it).",
+        ],
+        outro:
+          "Tip: make it social — join them for the first minute and let them lead.",
+      },
+    },
+    {
+      id: "new-features",
+      title: "New lessons & features",
+      desc: "What we're building next for KidzGPT.",
+      image: jackInBoxImg,
+      accent: "bg-[var(--info-teal)]",
+      content: {
+        intro:
+          "We're focused on making learning more playful, clearer, and more supportive for parents and schools.",
+        bullets: [
+          "More kid-friendly lesson packs (space, animals, volcanoes, and more).",
+          "Better character reactions that match the explanation.",
+          "Parent tips that suggest follow-up questions and mini activities.",
+          "Smoother experience across devices.",
+        ],
+        outro:
+          "Have a feature request? Send us a message in the Contact section below.",
+      },
+    },
+  ] as const;
+
+  const [isBlogModalOpen, setIsBlogModalOpen] = React.useState(false);
+  const [activeBlogId, setActiveBlogId] = React.useState<string | null>(null);
+  const activeBlog = blogPosts.find((p) => p.id === activeBlogId) ?? null;
+
+  const openBlog = (id: string) => {
+    setActiveBlogId(id);
+    setIsBlogModalOpen(true);
+  };
+
   const scrollToSection = (id: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     const el = document.getElementById(id);
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleContactSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const data = new FormData(form);
+
+    const name = String(data.get("name") || "").trim();
+    const email = String(data.get("email") || "").trim();
+    const message = String(data.get("message") || "").trim();
+
+    const subject = encodeURIComponent("KidzGPT Contact");
+    const body = encodeURIComponent(
+      [`Name: ${name || "(not provided)"}`, `Email: ${email || "(not provided)"}`, "", message || "(no message)"]
+        .join("\n")
+        .trim(),
+    );
+
+    window.location.href = `mailto:hello@kidzgpt.com?subject=${subject}&body=${body}`;
+    form.reset();
   };
 
   return (
@@ -140,7 +230,6 @@ export default function Landing() {
                 title: "Ask by Voice",
                 desc: "Tap the mic and speak — no typing needed.",
                 bg: "bg-[var(--bg-secondary)]",
-                accent: "border-[var(--cta-explore)]",
                 image: cuteRobotImg,
                 imageAlt: "Cute robot helper",
               },
@@ -149,7 +238,6 @@ export default function Landing() {
                 title: "Get a Kid-Friendly Answer",
                 desc: "Short, clear explanations with simple examples.",
                 bg: "bg-[var(--bg-learning)]",
-                accent: "border-[var(--cta-voice)]",
                 image: scienceExperimentImg,
                 imageAlt: "Fun science experiment illustration",
               },
@@ -158,16 +246,21 @@ export default function Landing() {
                 title: "Watch it Come Alive",
                 desc: "The character reacts and animates while explaining.",
                 bg: "bg-[var(--bg-success)]",
-                accent: "border-[var(--accent-coral)]",
                 image: kidsLearningHeroImg,
                 imageAlt: "Kids learning with AI",
               },
             ].map((step, i) => (
               <div
                 key={i}
-                className={`bg-white rounded-[3rem] border-4 border-[var(--border-soft)] border-b-8 ${step.accent} p-10 shadow-[var(--shadow-soft)] flex flex-col gap-6 group relative overflow-hidden`}
+                className="bg-[var(--bg-learning)] rounded-[3rem] border-4 border-[var(--border-soft)] border-b-8 border-[var(--cta-voice)] p-10 shadow-[var(--shadow-soft)] flex flex-col gap-6 group relative overflow-hidden"
               >
-                <div className="pointer-events-none absolute -top-12 -right-12 w-40 h-40 rounded-full bg-[var(--bg-secondary)] opacity-35"></div>
+                {/* Vibrant background blobs (token-based colors) */}
+                <div className="pointer-events-none absolute -top-14 -right-14 w-44 h-44 rounded-full bg-[var(--cta-explore)] opacity-30 blur-sm"></div>
+                <div className="pointer-events-none absolute top-24 -left-16 w-56 h-56 rounded-full bg-[var(--info-teal)] opacity-20 blur-sm"></div>
+                <div className="pointer-events-none absolute -bottom-20 right-6 w-64 h-64 rounded-full bg-[var(--accent-coral)] opacity-20 blur-sm"></div>
+
+                {/* Inner surface for readability */}
+                <div className="pointer-events-none absolute inset-3 rounded-[2.3rem] bg-white/80"></div>
 
                 <div className="relative flex items-start justify-between gap-6">
                   <div className={`w-20 h-20 rounded-[2rem] ${step.bg} flex items-center justify-center flex-shrink-0`}>
@@ -261,27 +354,8 @@ export default function Landing() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-            {[
-              {
-                title: "Helping kids ask better questions",
-                desc: "Simple prompts that unlock deeper curiosity.",
-                image: solarSystemImg,
-                accent: "bg-[var(--cta-explore)]",
-              },
-              {
-                title: "Screen time, but smarter",
-                desc: "How to use interactive learning responsibly.",
-                image: drawingImg,
-                accent: "bg-[var(--accent-soft-purple)]",
-              },
-              {
-                title: "New lessons & features",
-                desc: "What we’re building next for KidzGPT.",
-                image: jackInBoxImg,
-                accent: "bg-[var(--info-teal)]",
-              },
-            ].map((post) => (
-              <div key={post.title} className="bg-white rounded-[3rem] border-4 border-[var(--border-soft)] p-10 shadow-[var(--shadow-soft)] overflow-hidden">
+            {blogPosts.map((post) => (
+              <div key={post.id} className="bg-white rounded-[3rem] border-4 border-[var(--border-soft)] p-10 shadow-[var(--shadow-soft)] overflow-hidden">
                 <div className="space-y-4">
                   <div className={`w-full rounded-[2rem] ${post.accent} bg-opacity-20 p-4 border-2 border-[var(--border-soft)]`}>
                     <div className="bg-white/60 rounded-[1.5rem] p-4">
@@ -291,8 +365,11 @@ export default function Landing() {
                   <h3 className="text-2xl font-black text-[var(--text-primary)]">{post.title}</h3>
                   <p className="text-[var(--text-secondary)] font-medium leading-relaxed">{post.desc}</p>
                   <div className="pt-2">
-                    <button className="bg-[var(--cta-voice)] text-white px-6 py-2 rounded-lg font-bold hover:shadow-lg transition-all text-sm">
-                      Read More +
+                    <button
+                      onClick={() => openBlog(post.id)}
+                      className="bg-[var(--cta-voice)] text-white px-6 py-2 rounded-lg font-bold hover:shadow-lg transition-all text-sm"
+                    >
+                      Learn More +
                     </button>
                   </div>
                 </div>
@@ -301,79 +378,180 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ================= CONTACT ================= */}
-        <section id="contact" className="bg-white rounded-[3rem] p-12 md:p-20 border-4 border-[var(--border-soft)] shadow-[var(--shadow-soft)] relative overflow-hidden scroll-mt-24">
+        {/* Blog Post Modal */}
+        <Dialog
+          open={isBlogModalOpen}
+          onOpenChange={(open) => {
+            setIsBlogModalOpen(open);
+            if (!open) setActiveBlogId(null);
+          }}
+        >
+          <DialogContent className="max-w-2xl bg-white border-4 border-[var(--border-soft)] rounded-[2.5rem]">
+            {activeBlog ? (
+              <div className="space-y-5">
+                <DialogHeader>
+                  <DialogTitle className="text-3xl font-black text-[var(--text-primary)] font-[Comic Neue]">
+                    {activeBlog.title}
+                  </DialogTitle>
+                  <DialogDescription className="text-[var(--text-secondary)] font-semibold">
+                    {activeBlog.desc}
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className={`w-full rounded-[2rem] ${activeBlog.accent} bg-opacity-20 p-4 border-2 border-[var(--border-soft)]`}>
+                  <div className="bg-white/70 rounded-[1.5rem] p-4">
+                    <img src={activeBlog.image} alt="" className="w-full h-56 object-contain" />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <p className="text-[var(--text-secondary)] font-medium leading-relaxed">
+                    {activeBlog.content.intro}
+                  </p>
+
+                  <div className="bg-[var(--bg-learning)] rounded-[2rem] border-2 border-[var(--border-soft)] p-6">
+                    <ul className="list-disc pl-6 space-y-2 text-[var(--text-secondary)] font-semibold">
+                      {activeBlog.content.bullets.map((b) => (
+                        <li key={b}>{b}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <p className="text-[var(--text-secondary)] font-medium leading-relaxed">
+                    {activeBlog.content.outro}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+
+        {/* ================= CONTACT + NEWSLETTER (SINGLE BOX) ================= */}
+        <section
+          id="contact"
+          className="bg-white rounded-[3rem] p-12 md:p-20 border-4 border-[var(--border-soft)] shadow-[var(--shadow-soft)] relative overflow-hidden scroll-mt-24"
+        >
           <div className="absolute top-0 right-0 w-64 h-64 bg-[var(--bg-secondary)] rounded-full translate-x-32 -translate-y-32 opacity-60"></div>
-          <div className="relative grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+          <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-[var(--info-teal)] rounded-full opacity-15"></div>
+
+          <div className="relative grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+            {/* LEFT: CONTACT FORM */}
             <div className="space-y-6">
-              <h2 className="text-5xl font-black text-[var(--text-primary)] font-[Comic Neue]">Contact</h2>
-              <p className="text-[var(--text-secondary)] font-medium text-xl leading-relaxed max-w-xl">
-                Have a question, feedback, or a school inquiry? We’d love to hear from you.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <a
-                  href="mailto:hello@kidzgpt.com"
-                  className="bg-[var(--cta-voice)] text-white px-8 py-3 rounded-xl font-bold hover:shadow-lg transition-all text-center"
-                >
-                  Email Us
-                </a>
-                <Link href="/learn">
-                  <button className="bg-[var(--bg-secondary)] text-[var(--text-primary)] px-8 py-3 rounded-xl font-bold border-2 border-[var(--border-soft)] hover:shadow-lg transition-all">
-                    Try KidzGPT
+              <div className="space-y-3">
+                <h2 className="text-5xl font-black text-[var(--text-primary)] font-[Comic Neue]">Contact</h2>
+                <p className="text-[var(--text-secondary)] font-medium text-xl leading-relaxed max-w-xl">
+                  Have a question, feedback, or a school inquiry? Send us a message.
+                </p>
+              </div>
+
+              <form onSubmit={handleContactSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[var(--text-secondary)] font-bold">Your Name</label>
+                    <input
+                      name="name"
+                      type="text"
+                      placeholder="Alex"
+                      className="w-full bg-[var(--bg-learning)] border-2 border-[var(--border-soft)] rounded-2xl px-5 py-3 outline-none text-[var(--text-primary)] font-medium shadow-[var(--shadow-soft)]"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[var(--text-secondary)] font-bold">Email</label>
+                    <input
+                      name="email"
+                      type="email"
+                      required
+                      placeholder="you@example.com"
+                      className="w-full bg-[var(--bg-learning)] border-2 border-[var(--border-soft)] rounded-2xl px-5 py-3 outline-none text-[var(--text-primary)] font-medium shadow-[var(--shadow-soft)]"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[var(--text-secondary)] font-bold">Message</label>
+                  <textarea
+                    name="message"
+                    required
+                    rows={5}
+                    placeholder="Tell us what you need help with..."
+                    className="w-full bg-[var(--bg-learning)] border-2 border-[var(--border-soft)] rounded-2xl px-5 py-3 outline-none text-[var(--text-primary)] font-medium shadow-[var(--shadow-soft)] resize-none"
+                  />
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4 pt-2">
+                  <button
+                    type="submit"
+                    className="bg-[var(--cta-voice)] text-white px-8 py-3 rounded-xl font-bold hover:shadow-lg transition-all text-center"
+                  >
+                    Send Message
                   </button>
-                </Link>
-              </div>
+                  <Link href="/learn">
+                    <button
+                      type="button"
+                      className="bg-[var(--bg-secondary)] text-[var(--text-primary)] px-8 py-3 rounded-xl font-bold border-2 border-[var(--border-soft)] hover:shadow-lg transition-all"
+                    >
+                      Try KidzGPT
+                    </button>
+                  </Link>
+                </div>
+              </form>
             </div>
-            <div className="bg-[var(--info-teal)] rounded-[3rem] p-10 text-white shadow-xl">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-2xl bg-white/20 flex items-center justify-center">
-                  <Star size={22} fill="currentColor" />
+
+            {/* RIGHT: SUPPORT + NEWSLETTER INSIDE SAME OUTER BOX */}
+            <div className="space-y-8">
+              <div className="bg-[var(--info-teal)] rounded-[3rem] p-10 text-white shadow-xl">
+                <div className="flex items-center gap-4">
+                  <div className="h-12 w-12 rounded-2xl bg-white/20 flex items-center justify-center">
+                    <Star size={22} fill="currentColor" />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-black">Support</div>
+                    <div className="text-white/90 font-medium">We typically reply within 24-48 hours.</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-2xl font-black">Support</div>
-                  <div className="text-white/90 font-medium">We typically reply within 24–48 hours.</div>
+                <div className="mt-8 space-y-4 text-white/95 font-semibold">
+                  <div className="flex items-center justify-between bg-white/10 rounded-2xl px-6 py-4">
+                    <span>For parents</span>
+                    <span className="font-black">Help & tips</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-white/10 rounded-2xl px-6 py-4">
+                    <span>For schools</span>
+                    <span className="font-black">Partnerships</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-white/10 rounded-2xl px-6 py-4">
+                    <span>For creators</span>
+                    <span className="font-black">Content ideas</span>
+                  </div>
                 </div>
               </div>
-              <div className="mt-8 space-y-4 text-white/95 font-semibold">
-                <div className="flex items-center justify-between bg-white/10 rounded-2xl px-6 py-4">
-                  <span>For parents</span>
-                  <span className="font-black">Help & tips</span>
-                </div>
-                <div className="flex items-center justify-between bg-white/10 rounded-2xl px-6 py-4">
-                  <span>For schools</span>
-                  <span className="font-black">Partnerships</span>
-                </div>
-                <div className="flex items-center justify-between bg-white/10 rounded-2xl px-6 py-4">
-                  <span>For creators</span>
-                  <span className="font-black">Content ideas</span>
+
+              <div className="bg-[var(--info-teal)] rounded-[3rem] p-10 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-56 h-56 bg-white/10 rounded-full -translate-x-24 -translate-y-24"></div>
+                <div className="relative space-y-5">
+                  <div className="flex items-center gap-4">
+                    <div className="h-14 w-14 rounded-2xl bg-white/20 flex items-center justify-center overflow-hidden">
+                      <img src={logoImg} alt="KidzGPT" className="h-10 object-contain" />
+                    </div>
+                    <div>
+                      <div className="text-2xl font-black text-white">Join the Adventure</div>
+                      <div className="text-white/90 font-medium">Get updates and learning tips.</div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-2 rounded-2xl flex items-center gap-2 shadow-xl">
+                    <input
+                      type="email"
+                      placeholder="Parents' email address"
+                      className="flex-1 px-4 py-3 outline-none text-[var(--text-primary)] font-medium rounded-xl"
+                    />
+                    <button className="bg-[var(--cta-voice)] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:opacity-90 transition-all">
+                      Subscribe <Send size={18} />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </section>
-
-        {/* ================= NEWSLETTER ================= */}
-        <section className="bg-[var(--info-teal)] rounded-[3rem] p-12 md:p-20 relative overflow-hidden flex flex-col md:flex-row items-center gap-12 group">
-           <div className="absolute top-0 left-0 w-64 h-64 bg-white/10 rounded-full -translate-x-32 -translate-y-32"></div>
-           <div className="md:w-1/3 flex justify-center">
-              <img src={logoImg} alt="KidzGPT Mascot" className="w-48 h-48 object-contain drop-shadow-xl group-hover:scale-110 transition-transform bg-white/20 p-4 rounded-full" />
-           </div>
-           <div className="md:w-2/3 space-y-8 text-center md:text-left">
-              <h2 className="text-5xl font-black text-white font-[Comic Neue]">Join the Adventure</h2>
-              <p className="text-white/90 text-xl font-medium max-w-xl">
-                 Stay updated with new lessons, magical animations, and learning tips for your little ones.
-              </p>
-              <div className="bg-white p-2 rounded-2xl flex items-center max-w-xl shadow-xl">
-                 <input 
-                   type="email" 
-                   placeholder="Parents' email address" 
-                   className="flex-1 px-6 py-3 outline-none text-[var(--text-primary)] font-medium"
-                 />
-                 <button className="bg-[var(--cta-voice)] text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 hover:opacity-90 transition-all">
-                   Subscribe <Send size={18} />
-                 </button>
-              </div>
-           </div>
         </section>
       </main>
 

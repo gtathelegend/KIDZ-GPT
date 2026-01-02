@@ -13,7 +13,7 @@ from models.schemas import ExplainerSchema
 class ExplainAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model = os.getenv("OLLAMA_MODEL", "gemma3:1b")
+        self.model = os.getenv("OLLAMA_MODEL", "gpt-oss:20b-cloud")
 
     def _parse_ollama_json(self, response_content: Any) -> Dict[str, Any]:
         if isinstance(response_content, dict):
@@ -38,6 +38,7 @@ class ExplainAgent:
             .replace("‘", "'")
         )
 
+        print(f"Cleaned JSON string for parsing: {raw}")
         return json.loads(raw)
 
     def _normalize_points(self, points: Any) -> List[str]:
@@ -79,33 +80,82 @@ class ExplainAgent:
             "ta": "Tamil (தமிழ்)",
             "te": "Telugu (తెలుగు)",
         }.get(lang, language or "English")
-        system = "You write clear, factual explanations for a children's learning app."
+        system = """
+You are an educational explanation writer for a children's learning application.
 
-        prompt = f"""Write a clean explanation for a child (ages 6-10) in {lang_name}.
+Your role is to explain one topic clearly, factually, and simply for children aged 6–10.
+You write short, easy-to-understand explanations using concrete ideas and simple language.
 
-Topic: {topic}
-Child's question: {question}
+You must:
+- Explain the topic directly and accurately
+- Use simple cause-and-effect reasoning
+- Keep language calm, neutral, and factual
 
-Rules:
-- ALL text MUST be in {lang_name} ONLY.
-- DO NOT write dialogue.
-- DO NOT address the child by name.
-- DO NOT ask questions.
-- Keep it educational and specific.
-- Summary: 1–2 short sentences in {lang_name}.
-- Points: 3 short bullet-style points (facts or steps) in {lang_name}.
-
-CRITICAL:
-- If the language is NOT English, do NOT use ANY English words.
-- Every single word in title, summary, and points must be in {lang_name}.
-
-Return ONLY valid JSON in exactly this shape:
-{{
-  \"title\": \"...\",
-  \"summary\": \"...\",
-  \"points\": [\"...\", \"...\", \"...\"]
-}}
+You must NOT:
+- Write stories, dialogue, or conversations
+- Ask questions
+- Address the child directly
+- Use metaphors, jokes, or dramatic language
+- Include opinions or extra facts beyond the topic
 """
+
+
+        prompt = f"""
+Write a clear educational explanation for a child (ages 6–10).
+
+Topic:
+{topic}
+
+Child's Question:
+{question}
+
+Language:
+{lang_name}
+
+STRICT CONTENT RULES:
+- ALL text MUST be written ONLY in {lang_name}.
+- DO NOT include any English words if {lang_name} is not English.
+- DO NOT write dialogue or conversational sentences.
+- DO NOT address the child directly.
+- DO NOT ask questions.
+- DO NOT add unrelated facts or examples.
+- Keep explanations concrete and easy to understand.
+- Use short, simple sentences only.
+
+EXAMPLE:
+Topic: "The Sun"
+Question: "Why is the sun so bright?"
+Language: "English"
+Correct JSON Output:
+{{
+    "title": "The Bright Sun",
+    "summary": "The Sun is a star that makes its own light, making it very bright.",
+    "points": [
+        "The Sun is a giant ball of hot gas.",
+        "It produces light and heat through a process called nuclear fusion.",
+        "This light travels through space to reach our eyes, making the Sun appear bright."
+    ]
+}}
+
+STRUCTURE RULES:
+- Title: 2–5 simple words describing the topic.
+- Summary: 1–2 short sentences explaining the main idea.
+- Points: exactly 3 short bullet-style points explaining facts or steps.
+- Each point must explain ONE clear idea.
+
+OUTPUT RULES:
+- Return ONLY valid JSON.
+- Do NOT include explanations, comments, or extra text.
+- Follow the JSON structure exactly.
+
+REQUIRED JSON FORMAT:
+                {{
+                    "title": "...",
+                    "summary": "...",
+                    "points": ["...", "...", "..."]
+                }}
+"""
+
 
         data = {
             "model": self.model,
@@ -120,6 +170,7 @@ Return ONLY valid JSON in exactly this shape:
             response.raise_for_status()
             payload = response.json()
 
+        print(f"Ollama raw response: {payload.get('response')}") # Log raw response
         parsed = self._parse_ollama_json(payload.get("response", "{}"))
 
         title = str(parsed.get("title") or topic or "Explanation").strip()

@@ -4,7 +4,7 @@ import os
 from services.stt_service import transcribe_audio
 from services.language_service import detect_language
 from services.safety_service import is_safe
-from services.cache_service import get, set
+from services.cache_service import get, set, key as cache_key
 from services.animation_script_service import build_animation_scenes
 from agents.intent_agent import extract_intent
 from agents.animation_agent import generate_animation_scenes
@@ -12,6 +12,81 @@ from agents.script_agent import generate_storyboard_with_question
 # Non-dialogue explanation + key points for the topic section
 from agents.explain_agent import generate_explainer
 # TTS is handled by frontend browser TTS - no need to import generate_tts
+
+
+def _fallback_explainer_for_language(*, topic_title: str, language: str) -> dict:
+    lang_code = (language or "en").lower().split("-")[0]
+
+    fallback_by_lang = {
+        "hi": {
+            "title": topic_title,
+            "summary": "यहाँ मुख्य विचार सरल तरीके से हैं।",
+            "points": [
+                "इसका एक सरल अर्थ है।",
+                "इसके महत्वपूर्ण भाग या चरण हैं।",
+                "यह हमें समझने में मदद करता है।",
+            ],
+        },
+        "bn": {
+            "title": topic_title,
+            "summary": "এখানে মূল ধারণাগুলি সহজ উপায়ে রয়েছে।",
+            "points": [
+                "এর একটি সহজ অর্থ আছে।",
+                "এর গুরুত্বপূর্ণ অংশ বা ধাপ আছে।",
+                "এটা আমাদের বুঝতে সাহায্য করে।",
+            ],
+        },
+        "ta": {
+            "title": topic_title,
+            "summary": "இங்கே முக்கிய எண்ணங்கள் எளிய வழியில் உள்ளன.",
+            "points": [
+                "இதற்கு ஒரு எளிய பொருள் உள்ளது.",
+                "இதில் முக்கியமான பகுதிகள் அல்லது படிகள் உள்ளன.",
+                "இது நமக்கு புரிந்து கொள்ள உதவுகிறது.",
+            ],
+        },
+        "te": {
+            "title": topic_title,
+            "summary": "ఇక్కడ ప్రధాన ఆలోచనలు సరళమైన విధంగా ఉన్నాయి.",
+            "points": [
+                "దీనికి ఒక సరళమైన అర్థం ఉంది.",
+                "దీనికి ముఖ్యమైన భాగాలు లేదా దశలు ఉన్నాయి.",
+                "ఇది మనకు అర్థం చేసుకోవడానికి సహాయపడుతుంది.",
+            ],
+        },
+        "en": {
+            "title": topic_title,
+            "summary": "Here are the main ideas in a simple way.",
+            "points": [
+                "It has a simple meaning.",
+                "It has important parts or steps.",
+                "It helps us understand how something works.",
+            ],
+        },
+    }
+
+    return fallback_by_lang.get(lang_code, fallback_by_lang["en"])
+
+
+async def _compute_explainer_and_update_cache(*, cache_id: str, topic: str, question: str, language: str):
+    try:
+        explainer = await generate_explainer(topic=topic, question=question, language=language)
+        payload = get(question) or {}
+        if isinstance(payload, dict):
+            payload["explainer"] = explainer
+            payload["explainer_status"] = "ready"
+            payload["explainer_error"] = None
+            set(question, payload)
+    except Exception as e:
+        print(f"⚠️ Explainer generation failed (deferred): {e}")
+        topic_title = topic or "Explanation"
+        fallback = _fallback_explainer_for_language(topic_title=topic_title, language=language)
+        payload = get(question) or {}
+        if isinstance(payload, dict):
+            payload["explainer"] = fallback
+            payload["explainer_status"] = "fallback"
+            payload["explainer_error"] = str(e)
+            set(question, payload)
 
 
 async def process_audio(audio_file, language: str = "en"):
@@ -54,8 +129,17 @@ async def process_audio(audio_file, language: str = "en"):
 
     # 3️⃣ Cache check (after text exists)
     cached = get(text)
-    # Avoid returning old cached payloads that don't include the new fields.
-    if cached and isinstance(cached, dict) and cached.get("explainer") and cached.get("animation_scenes"):
+    # Return cached payload even if explainer is still pending.
+    # This ensures fast responses and prevents spawning multiple explainer tasks.
+    if cached and isinstance(cached, dict) and cached.get("animation_scenes") and cached.get("scenes"):
+        # Backfill fields for older cache entries
+        if not cached.get("job_id"):
+            cached["job_id"] = cache_key(text)
+        if "explainer_status" not in cached:
+            cached["explainer_status"] = "ready" if cached.get("explainer") else "pending"
+        if "explainer_error" not in cached:
+            cached["explainer_error"] = None
+        set(text, cached)
         return cached
 
     # 4️⃣ Language detection and validation
@@ -98,66 +182,9 @@ async def process_audio(audio_file, language: str = "en"):
     # The storyboard + explainer should be generated directly in the user's spoken language
     # (as detected by Whisper) to avoid translation-model drift.
 
-    # 6.8️⃣ Generate a clean explainer (not dialogue) for the topic card
+    # 6.8️⃣ Defer explainer generation so storyboard+animation can be presented immediately.
+    # We'll compute explainer asynchronously and let the client poll via job_id.
     explainer = None
-    try:
-        topic = (intent or {}).get("topic") or ""
-        explainer = await generate_explainer(topic=topic, question=text, language=language)
-    except Exception as e:
-        print(f"⚠️ Explainer generation failed: {e}")
-        topic_title = (intent or {}).get("topic") or "Explanation"
-        lang_code = (language or "en").lower().split("-")[0]
-        
-        # Language-specific fallback
-        fallback_by_lang = {
-            "hi": {
-                "title": topic_title,
-                "summary": "यहाँ मुख्य विचार सरल तरीके से हैं।",
-                "points": [
-                    "इसका एक सरल अर्थ है।",
-                    "इसके महत्वपूर्ण भाग या चरण हैं।",
-                    "यह हमें समझने में मदद करता है।",
-                ],
-            },
-            "bn": {
-                "title": topic_title,
-                "summary": "এখানে মূল ধারণাগুলি সহজ উপায়ে রয়েছে।",
-                "points": [
-                    "এর একটি সহজ অর্থ আছে।",
-                    "এর গুরুত্বপূর্ণ অংশ বা ধাপ আছে।",
-                    "এটা আমাদের বুঝতে সাহায্য করে।",
-                ],
-            },
-            "ta": {
-                "title": topic_title,
-                "summary": "இங்கே முக்கிய எண்ணங்கள் எளிய வழியில் உள்ளன.",
-                "points": [
-                    "இதற்கு ஒரு எளிய பொருள் உள்ளது.",
-                    "இதில் முக்கியமான பகுதிகள் அல்லது படிகள் உள்ளன.",
-                    "இது நமக்கு புரிந்து கொள்ள உதவுகிறது.",
-                ],
-            },
-            "te": {
-                "title": topic_title,
-                "summary": "ఇక్కడ ప్రధాన ఆలోచనలు సరళమైన విధంగా ఉన్నాయి.",
-                "points": [
-                    "దీనికి ఒక సరళమైన అర్థం ఉంది.",
-                    "దీనికి ముఖ్యమైన భాగాలు లేదా దశలు ఉన్నాయి.",
-                    "ఇది మనకు అర్థం చేసుకోవడానికి సహాయపడుతుంది.",
-                ],
-            },
-            "en": {
-                "title": topic_title,
-                "summary": "Here are the main ideas in a simple way.",
-                "points": [
-                    "It has a simple meaning.",
-                    "It has important parts or steps.",
-                    "It helps us understand how something works.",
-                ],
-            },
-        }
-        
-        explainer = fallback_by_lang.get(lang_code, fallback_by_lang["en"])
 
     # 7️⃣ Safety check on generated dialogue and validate dialogue exists
     for scene in storyboard["scenes"]:
@@ -198,23 +225,42 @@ async def process_audio(audio_file, language: str = "en"):
         if not animation_scenes:
             animation_scenes = build_animation_scenes(
                 storyboard_scenes=storyboard.get("scenes", []),
-                explainer=explainer,
+                explainer=None,
                 language=language,
             )
     except Exception as e:
         print(f"⚠️ Animation script generation failed: {e}")
         animation_scenes = []
 
+    cache_id = cache_key(text)
+
     result = {
+        "job_id": cache_id,
         "language": language,
         "original_text": text,
         "intent": intent,
-        "explainer": explainer,
+        "explainer": None,
+        "explainer_status": "pending",
+        "explainer_error": None,
         "scenes": storyboard["scenes"],
         "animation_scenes": animation_scenes,
     }
 
     # 9️⃣ Cache result
     set(text, result)
+
+    # 10️⃣ Start explainer generation in background (do not block animation).
+    try:
+        topic = (intent or {}).get("topic") or ""
+        asyncio.create_task(
+            _compute_explainer_and_update_cache(
+                cache_id=cache_id,
+                topic=topic,
+                question=text,
+                language=language,
+            )
+        )
+    except Exception as e:
+        print(f"⚠️ Failed to schedule deferred explainer task: {e}")
 
     return result

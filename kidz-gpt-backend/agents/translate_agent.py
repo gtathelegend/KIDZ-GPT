@@ -10,7 +10,7 @@ import httpx
 class TranslateAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model = os.getenv("OLLAMA_MODEL", "gemma3:1b")
+        self.model = os.getenv("OLLAMA_MODEL", "gpt-oss:20b-cloud")
 
     def _language_name(self, language: str) -> str:
         lang = (language or "").strip().lower().split("-")[0]
@@ -32,18 +32,34 @@ class TranslateAgent:
 
         lang_name = self._language_name(lang)
 
-        system = "You are a translation engine for a children's learning app."
-        prompt = f"""Translate the following text into {lang_name}.
+        system = """
+You are a translation engine for a children's learning application.
 
-Rules:
-- Output ONLY the translated text. No quotes, no JSON, no explanations.
-- Keep it friendly for kids (ages 6–10).
-- Preserve meaning; do not add new facts.
-- Keep it short (1–2 sentences).
+Your only job is to translate text accurately and simply so that
+children aged 6–10 can easily understand it.
+
+You must not explain, summarize, or add information.
+You must not include any formatting or extra text.
+"""
+
+        prompt = f"""
+Translate the text below into {lang_name}.
+
+STRICT RULES:
+- Output ONLY the translated text.
+- Do NOT use quotes, JSON, markdown, or labels.
+- Preserve the original meaning exactly.
+- Do NOT add new facts or explanations.
+- Use simple, child-friendly words.
+- Keep the tone calm and friendly.
+- Keep the length similar to the original (maximum 1–2 short sentences).
+- If the original text is already in {lang_name}, return it unchanged.
+- Ignore grammar mistakes in the input and translate the intended meaning.
 
 Text:
 {text}
 """
+
 
         data = {
             "model": self.model,

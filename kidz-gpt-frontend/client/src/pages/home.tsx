@@ -1,5 +1,17 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Mic, User, Volume2, Star, ChevronRight, AlertCircle } from "lucide-react";
+import {
+  Mic,
+  User,
+  Volume2,
+  Star,
+  ChevronRight,
+  AlertCircle,
+  Settings,
+  LogIn,
+  ArrowLeft,
+  Trophy,
+  PartyPopper,
+} from "lucide-react";
 import logoImg from "@assets/kidz-gpt_1767288550163.jpeg";
 import robotImage from "@assets/generated_images/cute_3d_robot_character.png";
 import solarSystemImage from "@assets/generated_images/cartoon_solar_system_illustration.png";
@@ -9,6 +21,20 @@ import dinosaursImage from "@assets/generated_images/cute_3d_minion_toy_characte
 import artImage from "@assets/generated_images/creative_art_and_drawing_illustration.png";
 import ScenePlayer from "@/components/ScenePlayer";
 import sceneData from "@/data/sampleScene.json";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface ChatMessage {
   actor: "kid" | "ai";
@@ -29,6 +55,13 @@ type BackendExplainer = {
   title?: string;
   summary?: string;
   points?: string[];
+};
+
+type ExplainerPollResponse = {
+  job_id?: string;
+  status?: "pending" | "ready" | "fallback" | string;
+  explainer?: BackendExplainer | null;
+  error?: string | null;
 };
 
 type Scene = {
@@ -78,6 +111,15 @@ export default function Home() {
   const [language, setLanguage] = useState("auto");
   const [speakingDialogueIndex, setSpeakingDialogueIndex] = useState<number | null>(null);
   
+  // Quiz state
+  const [showQuiz, setShowQuiz] = useState(false);
+  const [currentQuizQuestion, setCurrentQuizQuestion] = useState(0);
+  const [quizScore, setQuizScore] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [showQuizResult, setShowQuizResult] = useState(false);
+  const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
+  const [isQuizComplete, setIsQuizComplete] = useState(false);
+  
   // Voice settings for browser TTS - clear, professional male voice
   const [voiceSettings] = useState({
     pitch: 0.9,  // Slightly lower pitch tends to sound more masculine (0-2)
@@ -122,6 +164,12 @@ export default function Home() {
       text: "Some are super hot like Venus 🔥, and some are freezing cold like Neptune! ❄️",
     },
   ]);
+
+  const chatLenRef = useRef<number>(0);
+
+  useEffect(() => {
+    chatLenRef.current = chatHistory.length;
+  }, [chatHistory.length]);
   const [scenes, setScenes] = useState<Scene[]>(sceneData.scenes);
   const [isSceneActive, setIsSceneActive] = useState(false);
   const [isScenePlaying, setIsScenePlaying] = useState(false);
@@ -437,12 +485,141 @@ export default function Home() {
     };
   };
 
-  const fetchTopicImage = async (query: string): Promise<string | null> => {
+  const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T | null> => {
+    let timer: any;
+    try {
+      const timeout = new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      });
+      return (await Promise.race([promise, timeout])) as T | null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  const pollExplainer = async (jobId: string): Promise<BackendExplainer | null> => {
+    const id = String(jobId || "").trim();
+    if (!id) return null;
+
+    // Poll for up to ~20s. This runs while the animation/TTS is playing.
+    for (let attempt = 0; attempt < 25; attempt++) {
+      try {
+        const resp = await fetch(`/explainer?job_id=${encodeURIComponent(id)}`);
+        if (resp.status === 404) return null;
+        if (!resp.ok) {
+          await delay(600);
+          continue;
+        }
+        const data = (await resp.json().catch(() => null)) as ExplainerPollResponse | null;
+        const status = String(data?.status || "");
+        const explainer = data?.explainer || null;
+        if ((status === "ready" || status === "fallback") && explainer) return explainer;
+      } catch {
+        // ignore transient failures
+      }
+      await delay(800);
+    }
+
+    return null;
+  };
+
+  const toWikiLangCode = (lang: string): string => {
+    const raw = String(lang || "").trim().toLowerCase();
+    const primary = (raw.includes("-") ? raw.split("-")[0] : raw) || "en";
+    const supported = new Set(["en", "hi", "bn", "ta", "te"]);
+    return supported.has(primary) ? primary : "en";
+  };
+
+const cleanQuery = (query: string): string => {
+    const stopwords = ["a", "an", "the", "is", "are", "was", "were"];
+    const words = query.toLowerCase().split(" ");
+    const cleanedWords = words.filter(word => !stopwords.includes(word));
+    return cleanedWords.join(" ") || query;
+  };
+
+  const fetchTopicImage = async (query: string, langHint?: string): Promise<string | null> => {
     const q = (query || "").trim();
     if (!q) return null;
+
+    const originalLang = toWikiLangCode(langHint || language || "en");
+    let translatedQuery = q;
+
+    if (originalLang !== "en") {
+      try {
+        const translateResponse = await fetch("/translate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ text: q, to_language: "en" }),
+        });
+        if (translateResponse.ok) {
+          const data = await translateResponse.json();
+          translatedQuery = data.translated_text;
+          console.log(`📝 Translated "${q}" to "${translatedQuery}" for image search.`);
+        }
+      } catch (e) {
+        console.error("Translation failed, falling back to original query.", e);
+      }
+    }
+
+    const wikiLang = "en"; // Always search english wikipedia for better image results
+    const wikiBase = `https://${wikiLang}.wikipedia.org`;
+    
+    const isSafeExplanationImage = async (url: string): Promise<boolean> => {
+      const src = String(url || "").trim();
+      if (!src) return false;
+
+      // Only allow known Wikipedia/Wikimedia image hosts.
+      const allowedHosts = ["upload.wikimedia.org", "commons.wikimedia.org"];
+      try {
+        const parsed = new URL(src);
+        if (!allowedHosts.includes(parsed.hostname)) return false;
+      } catch {
+        return false;
+      }
+
+      // If the browser can't do face detection, don't fail closed, but log it.
+      const FaceDetectorCtor = (window as any)?.FaceDetector;
+      if (!FaceDetectorCtor) {
+        console.warn("⚠️ FaceDetector API not available. Cannot check for faces in images, so skipping this safety check.");
+        return true;
+      }
+
+      try {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.decoding = "async";
+        img.src = src;
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error("Image load failed"));
+        });
+
+        const canvas = document.createElement("canvas");
+        const w = Math.min(512, img.naturalWidth || img.width || 0);
+        const h = Math.min(512, img.naturalHeight || img.height || 0);
+        if (!w || !h) return false;
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return false;
+        ctx.drawImage(img, 0, 0, w, h);
+
+        const detector = new FaceDetectorCtor({ fastMode: true, maxDetectedFaces: 1 });
+        const faces = await detector.detect(canvas);
+
+        // If we detect a face, treat it as unsafe for the kids explanation image.
+        return !Array.isArray(faces) || faces.length === 0;
+      } catch {
+        return false;
+      }
+    };
     try {
-      console.log(`🖼️ Fetching topic image for: "${q}"`);
-      const resp = await fetch(`/topic-image?query=${encodeURIComponent(q)}`);
+      console.log(`🖼️ Fetching topic image for: "${translatedQuery}"`);
+      const resp = await fetch(`/topic-image?query=${encodeURIComponent(translatedQuery)}&lang=${encodeURIComponent(wikiLang)}`);
       if (!resp.ok) {
         console.warn(`⚠️ Topic image fetch failed: ${resp.status} ${resp.statusText}`);
         // continue to client-side fallback
@@ -454,9 +631,10 @@ export default function Home() {
           if (imageUrl) {
             console.log(`✅ Topic image found: ${imageUrl.substring(0, 80)}...`);
           } else {
-            console.warn(`⚠️ No image URL in response for "${q}"`);
+            console.warn(`⚠️ No image URL in response for "${translatedQuery}"`);
           }
-          return imageUrl ? imageUrl : null;
+          if (imageUrl && (await isSafeExplanationImage(imageUrl))) return imageUrl;
+          return null;
         }
 
         // If we got HTML (e.g., Vite dev server index.html), avoid JSON parsing.
@@ -471,27 +649,51 @@ export default function Home() {
         }
       }
 
-      // Client-side fallback: call Wikipedia APIs directly (CORS-friendly).
-      const searchUrl = new URL("https://en.wikipedia.org/w/api.php");
-      searchUrl.searchParams.set("action", "query");
-      searchUrl.searchParams.set("format", "json");
-      searchUrl.searchParams.set("origin", "*");
-      searchUrl.searchParams.set("generator", "search");
-      searchUrl.searchParams.set("gsrsearch", q);
-      searchUrl.searchParams.set("gsrlimit", "1");
-      searchUrl.searchParams.set("prop", "pageimages");
-      searchUrl.searchParams.set("pithumbsize", "800");
+      // Client-side fallback: Use a two-step process for better relevance.
+      // 1. Use opensearch to find the most relevant page title.
+      // 2. Use that title to get the page image.
+      const cleanedTranslatedQuery = cleanQuery(translatedQuery);
+      const openSearchUrl = new URL(`${wikiBase}/w/api.php`);
+      openSearchUrl.searchParams.set("action", "opensearch");
+      openSearchUrl.searchParams.set("search", cleanedTranslatedQuery);
+      openSearchUrl.searchParams.set("limit", "1");
+      openSearchUrl.searchParams.set("namespace", "0");
+      openSearchUrl.searchParams.set("format", "json");
+      openSearchUrl.searchParams.set("origin", "*");
 
-      const searchResp = await fetch(searchUrl.toString());
-      if (!searchResp.ok) return null;
-      const searchData = await searchResp.json().catch(() => null);
-      const pagesObj = searchData?.query?.pages || {};
+      const openSearchResp = await fetch(openSearchUrl.toString());
+      if (!openSearchResp.ok) return null;
+      const openSearchData = await openSearchResp.json().catch(() => null);
+      
+      const pageTitle = openSearchData?.[1]?.[0];
+      if (!pageTitle) {
+        console.warn(`⚠️ No relevant Wikipedia page title found for "${translatedQuery}"`);
+        return null;
+      }
+      
+      console.log(`✅ Found relevant page title: "${pageTitle}"`);
+
+      const queryUrl = new URL(`${wikiBase}/w/api.php`);
+      queryUrl.searchParams.set("action", "query");
+      queryUrl.searchParams.set("format", "json");
+      queryUrl.searchParams.set("origin", "*");
+      queryUrl.searchParams.set("prop", "pageimages");
+      queryUrl.searchParams.set("titles", pageTitle);
+      queryUrl.searchParams.set("pithumbsize", "800");
+      queryUrl.searchParams.set("utf8", "1");
+      queryUrl.searchParams.set("redirects", "1");
+
+      const queryResp = await fetch(queryUrl.toString());
+      if (!queryResp.ok) return null;
+      const queryData = await queryResp.json().catch(() => null);
+      const pagesObj = queryData?.query?.pages || {};
       const pages = Object.values(pagesObj) as any[];
       const page = pages?.[0];
       const imageUrl = typeof page?.thumbnail?.source === "string" ? page.thumbnail.source : "";
-      return imageUrl || null;
+      if (imageUrl && (await isSafeExplanationImage(imageUrl))) return imageUrl;
+      return null;
     } catch (e) {
-      console.error(`❌ Topic image fetch error for "${q}":`, e);
+      console.error(`❌ Topic image fetch error for "${translatedQuery}":`, e);
       return null;
     }
   };
@@ -648,15 +850,29 @@ export default function Home() {
             
             const ttsLanguage = detectedLanguage;
 
+            const normalizeDialogueKey = (input: string) =>
+              String(input || "")
+                .replace(/\s+/g, " ")
+                .trim()
+                .toLowerCase();
+
             // Add user message first
-            if (data.original_text) {
-              setChatHistory((prev) => [
-                ...prev,
-                { actor: "kid", text: data.original_text },
-              ]);
+            const originalText = typeof data.original_text === "string" ? data.original_text.trim() : "";
+            if (originalText) {
+              setChatHistory((prev) => [...prev, { actor: "kid", text: originalText }]);
+              chatLenRef.current += 1;
               // Small delay to allow UI to update
               await new Promise((resolve) => setTimeout(resolve, 100));
             }
+
+            // Start explainer processing/polling immediately (while animation plays)
+            const rawTopic = data?.intent?.topic || data?.topic || "";
+            const initialBackendExplainer: BackendExplainer | null =
+              (data?.explainer as BackendExplainer) ||
+              (data?.explanation as BackendExplainer) ||
+              null;
+            const jobId = typeof data?.job_id === "string" ? data.job_id : "";
+            const explainerPromise = jobId ? pollExplainer(jobId) : Promise.resolve(initialBackendExplainer);
 
             // Process scenes sequentially
             const incoming3D =
@@ -668,6 +884,7 @@ export default function Home() {
             const normalizedScenes = normalizeTo3DScenes(incoming3D);
 
             if (normalizedScenes.length > 0) {
+              const seenDialogues = new Set<string>();
               setScenes(normalizedScenes);
               setIsSceneActive(true);
               for (let i = 0; i < normalizedScenes.length; i++) {
@@ -680,16 +897,22 @@ export default function Home() {
                   console.warn(`⚠️ Skipping scene ${i + 1}: empty dialogue`);
                   continue;
                 }
+
+                // De-dupe identical lines (prevents repeated/garbled outputs when backend repeats itself)
+                const dialogueKey = normalizeDialogueKey(dialogue);
+                if (seenDialogues.has(dialogueKey)) {
+                  console.warn(`⚠️ Skipping scene ${i + 1}: duplicate dialogue`);
+                  continue;
+                }
+                seenDialogues.add(dialogueKey);
                 
                 // Update subtitle
                 setCurrentSubtitle(dialogue);
 
                 // Add AI message to chat (batch update to prevent glitches)
-                const dialogueIndex = chatHistory.length + 1; // Track position
-                setChatHistory((prev) => [
-                  ...prev,
-                  { actor: "ai", text: dialogue },
-                ]);
+                const dialogueIndex = chatLenRef.current;
+                setChatHistory((prev) => [...prev, { actor: "ai", text: dialogue }]);
+                chatLenRef.current += 1;
                 
                 // Small delay to allow UI to render before playing audio
                 await new Promise((resolve) => setTimeout(resolve, 200));
@@ -717,11 +940,10 @@ export default function Home() {
 
             // Update the topic explainer section (image + summary) and scroll to it
             try {
-              const rawTopic = data?.intent?.topic || data?.topic || "";
-              const backendExplainer: BackendExplainer | null =
-                (data?.explainer as BackendExplainer) ||
-                (data?.explanation as BackendExplainer) ||
-                null;
+              // Prefer the deferred explainer (computed while animation played)
+              const backendExplainer =
+                (await withTimeout(explainerPromise, 8000)) || initialBackendExplainer;
+
               const nextExplainer = pickTopicExplainer({
                 topic: rawTopic,
                 question: data?.original_text,
@@ -731,7 +953,7 @@ export default function Home() {
 
               // Fetch a real image from the web for this topic (non-blocking)
               const imageQuery = rawTopic || data?.original_text || "";
-              const imageUrl = await fetchTopicImage(imageQuery);
+              const imageUrl = await fetchTopicImage(imageQuery, ttsLanguage);
               if (imageUrl) {
                 setTopicExplainer((prev) => ({
                   ...prev,
@@ -801,6 +1023,107 @@ export default function Home() {
     }
   };
 
+  const generateQuiz = async () => {
+    const topic = topicExplainer.title || "this topic";
+    
+    try {
+      setIsProcessing(true);
+      
+      // Fetch quiz questions from backend
+      const response = await fetch("/generate-quiz", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          topic: topic,
+          explainer: {
+            title: topicExplainer.title,
+            summary: topicExplainer.answer,
+            points: topicExplainer.points,
+          },
+          language: language,
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error("Failed to generate quiz");
+      }
+      
+      const data = await response.json();
+      const questions = data.questions || [];
+      
+      if (questions.length === 0) {
+        throw new Error("No questions generated");
+      }
+      
+      setQuizQuestions(questions);
+      setCurrentQuizQuestion(0);
+      setQuizScore(0);
+      setSelectedAnswer(null);
+      setShowQuizResult(false);
+      setIsQuizComplete(false);
+      setShowQuiz(true);
+      
+      // Speak the first question
+      setTimeout(() => {
+        if (questions[0]) {
+          speakText(questions[0].question, language);
+        }
+      }, 500);
+    } catch (error) {
+      console.error("Quiz generation error:", error);
+      setError("Failed to generate quiz. Please try again!");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleQuizAnswer = async (answerIndex: number) => {
+    if (selectedAnswer !== null) return; // Already answered
+    
+    setSelectedAnswer(answerIndex);
+    const isCorrect = answerIndex === quizQuestions[currentQuizQuestion].correctAnswer;
+    
+    if (isCorrect) {
+      setQuizScore(quizScore + 1);
+      await speakText("Correct! Great job!", language);
+      setShowQuizResult(true);
+      
+      // Move to next question or show final score
+      setTimeout(async () => {
+        if (currentQuizQuestion < quizQuestions.length - 1) {
+          setCurrentQuizQuestion(currentQuizQuestion + 1);
+          setSelectedAnswer(null);
+          setShowQuizResult(false);
+          
+          // Speak next question
+          setTimeout(() => {
+            speakText(quizQuestions[currentQuizQuestion + 1].question, language);
+          }, 300);
+        } else {
+          setIsQuizComplete(true);
+          await speakText(`Amazing! You scored ${quizScore + 1} out of ${quizQuestions.length}! You're a champion!`, language);
+        }
+      }, 2000);
+    } else {
+      await speakText("Oops! Try again and think carefully.", language);
+      setTimeout(() => {
+        setSelectedAnswer(null);
+      }, 1500);
+    }
+  };
+
+  const closeQuiz = () => {
+    setShowQuiz(false);
+    setQuizQuestions([]);
+    setCurrentQuizQuestion(0);
+    setQuizScore(0);
+    setSelectedAnswer(null);
+    setShowQuizResult(false);
+    setIsQuizComplete(false);
+  };
+
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -811,49 +1134,86 @@ export default function Home() {
 
 
   return (
-    <div className="min-h-screen flex flex-col gap-6 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto animate-in fade-in duration-700">
+    <div className="min-h-screen w-full animate-in fade-in duration-700">
       {/* ================= HEADER ================= */}
-      <header className="flex items-center justify-between py-2 border-b-2 border-[var(--border-soft)] md:border-none animate-in slide-in-from-top-4 duration-500">
-        <div className="flex items-center gap-3">
-          <img src={logoImg} alt="KidzGPT Logo" className="h-10 md:h-12 object-contain" />
-        </div>
+      <header className="fixed top-0 left-0 right-0 z-50 px-4 md:px-6 lg:px-8 py-2 border-b-2 border-[var(--border-soft)] md:border-none">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src={logoImg} alt="KidzGPT Logo" className="h-12 md:h-14 object-contain" />
+          </div>
 
-        <div className="flex items-center gap-4">
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            className="bg-white px-4 py-2 rounded-full shadow-sm border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold"
-            aria-label="Select language"
-          >
-            <option value="auto">Auto (detect from voice)</option>
-            <option value="en-IN">English (India)</option>
-            <option value="hi-IN">Hindi</option>
-            <option value="bn-IN">Bengali</option>
-            <option value="ta-IN">Tamil</option>
-            <option value="te-IN">Telugu</option>
-          </select>
-
-          <button 
-            className="flex items-center gap-3 bg-white px-4 py-2 rounded-full shadow-sm hover:shadow-md transition-shadow cursor-pointer border-2 border-[var(--border-soft)]"
-            aria-label="User Profile"
-          >
-            <span className="font-bold text-[var(--text-primary)] hidden md:block">Hi, Alex!</span>
-            <div className="h-10 w-10 bg-[var(--bg-secondary)] rounded-full flex items-center justify-center text-[var(--text-on-yellow)]">
-              <User size={20} />
-            </div>
-          </button>
+          <div className="flex items-center gap-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="h-12 w-12 bg-white rounded-full shadow-sm hover:shadow-md transition-shadow border-2 border-[var(--border-soft)] flex items-center justify-center"
+                  aria-label="Settings"
+                >
+                  <Settings size={20} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel>Settings</DropdownMenuLabel>
+                <div className="px-2 py-1.5">
+                  <label
+                    className="block text-xs font-semibold opacity-70 mb-1"
+                    htmlFor="learn-language"
+                  >
+                    Language
+                  </label>
+                  <select
+                    id="learn-language"
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    className="w-full bg-white px-3 py-2 rounded-md shadow-sm border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold"
+                    aria-label="Select language"
+                  >
+                    <option value="auto">Auto (detect from voice)</option>
+                    <option value="en-IN">English (India)</option>
+                    <option value="hi-IN">Hindi</option>
+                    <option value="bn-IN">Bengali</option>
+                    <option value="ta-IN">Tamil</option>
+                    <option value="te-IN">Telugu</option>
+                  </select>
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => {
+                    window.location.href = "/login";
+                  }}
+                >
+                  <LogIn size={16} />
+                  Login
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col gap-6">
+      <div className="flex flex-col gap-6 pt-20 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
+        <main className="flex-1 flex flex-col gap-6">
         
         {/* ================= UPPER SECTION: CHAT & ANIMATION ================= */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[500px] animate-in slide-in-from-bottom-6 duration-700 delay-100">
+        <div className="bg-white/85 backdrop-blur-sm rounded-3xl shadow-xl border-2 border-[var(--border-soft)] p-4 md:p-6 animate-in slide-in-from-bottom-6 duration-700 delay-100">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[650px] lg:min-h-[75vh]">
           
           {/* LEFT: CHAT TRANSCRIPT */}
-          <section className="lg:col-span-4 flex flex-col gap-4 h-full">
-            <div className="card flex-1 flex flex-col relative border-4 border-[var(--border-soft)] max-h-[calc(100vh-280px)] min-h-[400px] overflow-hidden">
-              <div className="flex-1 overflow-y-auto space-y-4 p-4 custom-scrollbar" style={{ scrollBehavior: 'smooth', willChange: 'scroll-position' }}>
+          <section className="lg:col-span-5 flex flex-col gap-4 h-full">
+            {/* Back Button */}
+            <div className="flex justify-start">
+              <button
+                onClick={() => window.location.href = "/"}
+                className="flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-md hover:shadow-lg transition-all duration-200 border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold hover:-translate-x-1"
+              >
+                <ArrowLeft size={18} />
+                <span className="text-sm">Back to Home</span>
+              </button>
+            </div>
+            
+            <div className="card flex-1 flex flex-col relative border-4 border-[var(--border-soft)] max-h-[calc(100vh-220px)] min-h-[520px] overflow-hidden shadow-xl ring-4 ring-[var(--cta-voice)] ring-opacity-15">
+              <div className="flex-1 overflow-y-auto space-y-5 p-6 custom-scrollbar" style={{ scrollBehavior: 'smooth', willChange: 'scroll-position' }}>
                 {chatHistory.map((chat, i) => {
                   // Colorful AI dialogues: mix of red, green, yellow
                   const aiColors = [
@@ -922,11 +1282,11 @@ export default function Home() {
               <button
                 className={`button ${
                   isListening
-                    ? "button-voice"
+                    ? "button-voice shadow-lg ring-4 ring-[var(--cta-voice)] ring-opacity-20"
                     : isProcessing
                     ? "bg-gray-200 border-2 border-gray-400 text-gray-600 cursor-not-allowed"
-                    : "bg-white border-2 border-[var(--cta-voice)] text-[var(--cta-voice)] animate-pulse-glow"
-                } w-full flex justify-center gap-2 items-center text-xl shadow-none hover:shadow-md transition-all duration-200`}
+                    : "button-primary shadow-xl ring-4 ring-[var(--cta-primary)] ring-opacity-25"
+                } w-full flex justify-center gap-2 items-center text-xl transition-all duration-200`}
                 onClick={handleMicClick}
                 disabled={isProcessing}
               >
@@ -944,10 +1304,10 @@ export default function Home() {
           </section>
 
           {/* RIGHT: ANIMATION & HIGHLIGHTS */}
-          <section className="lg:col-span-8 flex flex-col gap-4 h-full">
+          <section className="lg:col-span-7 flex flex-col gap-4 h-full">
             
             {/* CHARACTER / ANIMATION AREA */}
-            <div className="character-container flex-1 flex flex-col items-center justify-center relative overflow-hidden min-h-[350px]">
+            <div className="character-container flex-1 flex flex-col items-center justify-center relative overflow-hidden min-h-[520px] lg:min-h-[560px]">
               {/* Decorative background circles */}
               <div className="absolute top-10 left-10 w-20 h-20 bg-white opacity-20 rounded-full blur-xl"></div>
               <div className="absolute bottom-10 right-10 w-32 h-32 bg-[var(--bg-secondary)] opacity-30 rounded-full blur-2xl"></div>
@@ -962,13 +1322,14 @@ export default function Home() {
               </div>
 
               {/* Reward Badge (Floating) */}
-              <div className="absolute top-4 right-4 reward-badge shadow-lg animate-bounce">
+              {/* <div className="absolute top-4 right-4 reward-badge shadow-lg animate-bounce">
                 <Star fill="#5D4037" size={24} />
                 <span className="ml-2 font-bold">+10 XP</span>
-              </div>
+              </div> */}
             </div>
 
           </section>
+          </div>
         </div>
 
         {/* ================= MIDDLE SECTION: EXPLANATION ================= */}
@@ -1051,31 +1412,241 @@ export default function Home() {
 
         </div>
 
+        {/* ================= QUIZ CHALLENGE SECTION ================= */}
+        <section className="mt-8 mb-4">
+          <div className="relative bg-gradient-to-r from-[#FF6B6B] via-[#FFA500] to-[#FFD700] rounded-3xl p-8 shadow-2xl border-4 border-white overflow-hidden">
+            {/* Decorative background elements */}
+            <div className="absolute top-0 right-0 w-40 h-40 bg-white opacity-10 rounded-full -mr-20 -mt-20"></div>
+            <div className="absolute bottom-0 left-0 w-32 h-32 bg-white opacity-10 rounded-full -ml-16 -mb-16"></div>
+            
+            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="flex-1 text-center md:text-left">
+                <div className="flex items-center justify-center md:justify-start gap-3 mb-3">
+                  <Trophy size={40} className="text-white animate-bounce" />
+                  <h3 className="text-3xl md:text-4xl font-bold text-white font-[Comic Neue]">
+                    Test Your Knowledge!
+                  </h3>
+                  <PartyPopper size={40} className="text-white animate-bounce" style={{ animationDelay: "0.2s" }} />
+                </div>
+                <p className="text-xl text-white font-[Poppins] opacity-90">
+                  Take a fun quiz and become a Super Learner! 🌟
+                </p>
+              </div>
+              
+              <button
+                onClick={generateQuiz}
+                disabled={isProcessing}
+                className="bg-white text-[#FF6B6B] font-bold text-2xl py-5 px-10 rounded-full shadow-2xl hover:shadow-none hover:scale-110 transition-all duration-300 flex items-center gap-4 border-4 border-[#FFD700] animate-pulse disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ animationDuration: "1.5s" }}
+              >
+                <span className="text-4xl">🎯</span>
+                Start Quiz!
+                <span className="text-4xl">✨</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
         {/* ================= BOTTOM SECTION: RELATED TOPICS ================= */}
         <section className="mt-4">
-          <div className="flex items-center justify-between mb-4 px-2">
-            <h3 className="text-xl font-bold text-[var(--text-primary)]">Keep Exploring! 🚀</h3>
-            <button className="text-[var(--cta-voice)] font-bold hover:underline flex items-center">
-              View All <ChevronRight size={16} />
-            </button>
+          <div className="mb-6 px-2">
+            <h3 className="text-4xl font-bold bg-gradient-to-r from-[#FF6B6B] via-[#FFA500] to-[#4CAF50] bg-clip-text text-transparent font-[Comic Neue] flex items-center gap-3 animate-pulse">
+              Keep Exploring! 🚀
+            </h3>
           </div>
           
-          <div className="flex gap-4 overflow-x-auto pb-4 snap-x px-1 custom-scrollbar">
-            {['Dinosaurs', 'Ocean Life', 'Volcanoes', 'Rainforest', 'Space Travel', 'Insects'].map((topic, i) => (
+          <div 
+            ref={(el) => {
+              if (el && !el.dataset.carouselActive) {
+                el.dataset.carouselActive = 'true';
+                const scrollInterval = setInterval(() => {
+                  if (el.scrollLeft >= el.scrollWidth - el.clientWidth - 10) {
+                    el.scrollTo({ left: 0, behavior: 'smooth' });
+                  } else {
+                    el.scrollBy({ left: 240, behavior: 'smooth' });
+                  }
+                }, 3000);
+                
+                el.addEventListener('mouseenter', () => clearInterval(scrollInterval));
+                el.addEventListener('mouseleave', () => {
+                  const newInterval = setInterval(() => {
+                    if (el.scrollLeft >= el.scrollWidth - el.clientWidth - 10) {
+                      el.scrollTo({ left: 0, behavior: 'smooth' });
+                    } else {
+                      el.scrollBy({ left: 240, behavior: 'smooth' });
+                    }
+                  }, 3000);
+                  el.addEventListener('mouseenter', () => clearInterval(newInterval), { once: true });
+                });
+              }
+            }}
+            className="flex gap-6 overflow-x-auto pb-4 snap-x px-1 scrollbar-hide"
+          >
+            {[
+              { topic: 'Dinosaurs', emoji: '🦖', gradient: 'from-[#FF6B6B] to-[#FF8A65]' },
+              { topic: 'Ocean Life', emoji: '🐳', gradient: 'from-[#2196F3] to-[#81D4FA]' },
+              { topic: 'Volcanoes', emoji: '🌋', gradient: 'from-[#FF5722] to-[#FFAB91]' },
+              { topic: 'Rainforest', emoji: '🌴', gradient: 'from-[#4CAF50] to-[#81C784]' },
+              { topic: 'Space Travel', emoji: '🚀', gradient: 'from-[#9C27B0] to-[#CE93D8]' },
+              { topic: 'Insects', emoji: '🐞', gradient: 'from-[#FFD700] to-[#FFE082]' },
+              { topic: 'Ancient Egypt', emoji: '🏺', gradient: 'from-[#DEB887] to-[#F4A460]' },
+              { topic: 'Weather', emoji: '⛈️', gradient: 'from-[#87CEEB] to-[#B0E0E6]' },
+              { topic: 'Human Body', emoji: '🫀', gradient: 'from-[#FF69B4] to-[#FFB6C1]' },
+              { topic: 'Robots', emoji: '🤖', gradient: 'from-[#708090] to-[#A9A9A9]' },
+              { topic: 'Antarctica', emoji: '🐧', gradient: 'from-[#E0FFFF] to-[#B0E2FF]' },
+              { topic: 'Magic Tricks', emoji: '🎩', gradient: 'from-[#4B0082] to-[#8A2BE2]' },
+              { topic: 'Castles', emoji: '🏰', gradient: 'from-[#CD853F] to-[#DEB887]' },
+              { topic: 'Music', emoji: '🎵', gradient: 'from-[#FF1493] to-[#FF69B4]' },
+              { topic: 'Planets', emoji: '🪐', gradient: 'from-[#191970] to-[#4169E1]' },
+              { topic: 'Sports', emoji: '⚽', gradient: 'from-[#32CD32] to-[#98FB98]' }
+            ].map((item, i) => (
               <div 
                 key={i} 
-                className="min-w-[160px] md:min-w-[200px] h-32 md:h-40 bg-white rounded-2xl shadow-[var(--shadow-soft)] flex flex-col items-center justify-center gap-3 p-4 cursor-pointer hover:-translate-y-2 transition-transform duration-300 border-b-4 border-[var(--bg-secondary)] snap-start"
+                className={`min-w-[180px] md:min-w-[220px] h-40 md:h-48 bg-gradient-to-br ${item.gradient} rounded-3xl shadow-2xl flex flex-col items-center justify-center gap-4 p-6 cursor-pointer hover:scale-110 hover:-translate-y-3 transition-all duration-300 border-4 border-white snap-start relative overflow-hidden group`}
               >
-                <div className="w-12 h-12 rounded-full bg-[var(--bg-learning)] flex items-center justify-center text-2xl">
-                  {['🦖', '🐳', '🌋', '🌴', '🚀', '🐞'][i]}
+                {/* Decorative shine effect */}
+                <div className="absolute top-0 right-0 w-20 h-20 bg-white opacity-20 rounded-full blur-xl group-hover:opacity-40 transition-opacity"></div>
+                <div className="absolute bottom-0 left-0 w-16 h-16 bg-white opacity-10 rounded-full blur-lg"></div>
+                
+                <div className="relative z-10 w-16 h-16 md:w-20 md:h-20 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center text-4xl md:text-5xl shadow-lg group-hover:scale-125 transition-transform duration-300">
+                  {item.emoji}
                 </div>
-                <span className="font-bold text-[var(--text-primary)] text-lg">{topic}</span>
+                <span className="relative z-10 font-bold text-white text-xl md:text-2xl drop-shadow-lg font-[Comic Neue] text-center">
+                  {item.topic}
+                </span>
               </div>
             ))}
           </div>
         </section>
 
-      </main>
+        </main>
+      </div>
+
+      {/* ================= QUIZ MODAL ================= */}
+      <Dialog open={showQuiz} onOpenChange={setShowQuiz}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-gradient-to-br from-[#FFE5E5] via-[#FFF9E5] to-[#E8F5E9] border-4 border-[var(--cta-primary)] rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-3xl font-bold text-center text-[var(--text-primary)] font-[Comic Neue] flex items-center justify-center gap-3">
+              <Trophy size={32} className="text-[#FFD700]" />
+              Quiz Time! 🎉
+              <PartyPopper size={32} className="text-[#FF6B6B]" />
+            </DialogTitle>
+          </DialogHeader>
+
+          {!isQuizComplete ? (
+            <div className="space-y-6 p-6">
+              {/* Progress Bar */}
+              <div className="flex gap-2 justify-center">
+                {quizQuestions.map((_, idx) => (
+                  <div
+                    key={idx}
+                    className={`h-3 flex-1 rounded-full transition-all duration-300 ${
+                      idx < currentQuizQuestion
+                        ? "bg-green-500"
+                        : idx === currentQuizQuestion
+                        ? "bg-[#FFD700] animate-pulse"
+                        : "bg-gray-300"
+                    }`}
+                  />
+                ))}
+              </div>
+
+              {/* Question Counter */}
+              <div className="text-center text-lg font-bold text-[var(--text-primary)]">
+                Question {currentQuizQuestion + 1} of {quizQuestions.length}
+              </div>
+
+              {/* Question */}
+              {quizQuestions[currentQuizQuestion] && (
+                <>
+                  <div className="bg-white rounded-2xl p-6 shadow-lg border-4 border-[#FFA500]">
+                    <h3 className="text-2xl font-bold text-[var(--text-primary)] text-center font-[Comic Neue]">
+                      {quizQuestions[currentQuizQuestion].question}
+                    </h3>
+                  </div>
+
+                  {/* Answer Options - 2 options */}
+                  <div className="grid grid-cols-1 gap-4">
+                    {quizQuestions[currentQuizQuestion].options.map((option: string, idx: number) => {
+                      const isSelected = selectedAnswer === idx;
+                      const isCorrect = idx === quizQuestions[currentQuizQuestion].correctAnswer;
+                      const showResult = selectedAnswer !== null;
+
+                      const colors = [
+                        { bg: "bg-[#E8F5E9]", border: "border-[#4CAF50]", hover: "hover:bg-[#C8E6C9]" },
+                        { bg: "bg-[#FFE5E5]", border: "border-[#FF6B6B]", hover: "hover:bg-[#FFD0D0]" },
+                      ];
+
+                      const colorScheme = colors[idx % 2];
+
+                      let className = `${colorScheme.bg} ${colorScheme.border} ${colorScheme.hover} border-4 rounded-2xl p-4 text-lg font-bold text-[var(--text-primary)] text-center cursor-pointer transition-all duration-300 transform hover:scale-105 hover:shadow-xl`;
+
+                      if (showResult) {
+                        if (isSelected && isCorrect) {
+                          className = "bg-green-500 border-green-700 border-4 rounded-2xl p-4 text-lg font-bold text-white text-center scale-110 shadow-2xl animate-bounce";
+                        } else if (isSelected && !isCorrect) {
+                          className = "bg-red-500 border-red-700 border-4 rounded-2xl p-4 text-lg font-bold text-white text-center shake";
+                        }
+                      }
+
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => handleQuizAnswer(idx)}
+                          disabled={selectedAnswer !== null}
+                          className={className}
+                        >
+                          {option}
+                          {showResult && isSelected && isCorrect && " ✓"}
+                          {showResult && isSelected && !isCorrect && " ✗"}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Result Message */}
+                  {showQuizResult && selectedAnswer !== null && (
+                    <div className="bg-green-100 border-4 border-green-500 rounded-2xl p-6 text-center animate-in slide-in-from-bottom-4 duration-500">
+                      <div className="text-4xl mb-2">🎉</div>
+                      <p className="text-2xl font-bold text-green-700 font-[Comic Neue]">
+                        Correct! Great job! 🌟
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            /* Quiz Complete - Show Prize */
+            <div className="space-y-6 p-8 text-center">
+              <div className="text-8xl mb-4 animate-bounce">🏆</div>
+              <h2 className="text-4xl font-bold text-[var(--text-primary)] font-[Comic Neue] mb-4">
+                Amazing Work, Champion! 🎊
+              </h2>
+              <div className="bg-gradient-to-r from-[#FFD700] to-[#FFA500] rounded-3xl p-8 shadow-2xl border-4 border-[#FF6B6B]">
+                <p className="text-3xl font-bold text-white mb-4">
+                  You scored {quizScore} out of {quizQuestions.length}!
+                </p>
+                <div className="flex justify-center gap-4 text-5xl mb-4">
+                  <span className="animate-bounce" style={{ animationDelay: "0ms" }}>⭐</span>
+                  <span className="animate-bounce" style={{ animationDelay: "150ms" }}>🎯</span>
+                  <span className="animate-bounce" style={{ animationDelay: "300ms" }}>🎁</span>
+                </div>
+                <p className="text-2xl text-white font-[Poppins]">
+                  You earned a Super Learner Badge! 🏅
+                </p>
+              </div>
+              
+              <button
+                onClick={closeQuiz}
+                className="mt-6 bg-[var(--cta-primary)] text-white font-bold text-xl py-4 px-8 rounded-2xl shadow-xl hover:shadow-2xl hover:scale-105 transition-all duration-300"
+              >
+                Continue Learning! 🚀
+              </button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

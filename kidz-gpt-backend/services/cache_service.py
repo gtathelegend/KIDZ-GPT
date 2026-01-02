@@ -10,3 +10,11 @@ def get(text):
 
 def set(text, value):
     CACHE[key(text)] = value
+
+
+def get_by_key(cache_key: str):
+    return CACHE.get(cache_key)
+
+
+def set_by_key(cache_key: str, value):
+    CACHE[cache_key] = value

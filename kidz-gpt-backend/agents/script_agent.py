@@ -11,7 +11,7 @@ class ScriptAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
         # Allow a dedicated storyboard model; fallback to the general model.
-        self.model = os.getenv("OLLAMA_MODEL_SCRIPT", os.getenv("OLLAMA_MODEL", "gemma3:1b"))
+        self.model = os.getenv("OLLAMA_MODEL_SCRIPT", os.getenv("OLLAMA_MODEL", "gpt-oss:20b-cloud"))
 
     async def _generate_storyboard_from_ollama(self, intent: Dict[str, Any], language: str, question: str = "") -> Dict[str, Any]:
         topic = (intent or {}).get("topic") or "a random topic"
@@ -27,30 +27,76 @@ class ScriptAgent:
         }.get(lang_code, language or "English")
 
         system_prompt = """
-        You are a creative and engaging storyteller for young children. Your goal is to explain topics in a simple, fun, and educational way.
-        You will be given a topic and a language. You must generate a short storyboard that is easy for a child to understand.
-        The storyboard should be a JSON object with a "scenes" key, which is a list of scenes.
-        Each scene object must have "scene" (a number), "background" (a simple description of the setting), and "dialogue" (a single, short, and simple sentence).
-        """
+You are an educational explanation generator for young children.
+
+Your role is to explain a single topic clearly and visually, as if you are teaching
+a curious child using simple scenes and simple language.
+
+You must:
+- Focus on explaining the topic directly
+- Use cause-and-effect reasoning suitable for children
+- Think visually (what the child can see or imagine)
+- Keep everything simple, concrete, and reassuring
+
+You must NOT:
+- Tell stories unrelated to the explanation
+- Add extra facts beyond the topic
+- Use abstract concepts or technical words
+- Add jokes, morals, or dramatic storytelling
+
+Your output will be used to animate characters in real time.
+Any unnecessary or unclear explanation will confuse the child.
+"""
+
 
         user_prompt = f"""
-        Generate a short, simple storyboard for a child.
+Create a short storyboard that explains the topic clearly to a child.
 
-        Topic: "{topic}"
-        Child's question: "{question}" 
+Topic:
+"{topic}"
 
-        IMPORTANT:
-        - The storyboard must be in {lang_name}.
-        - The storyboard MUST answer the child's question directly.
-        - Stay strictly on the topic and question. Do NOT introduce unrelated facts.
-        - The dialogue must be very simple and easy for a young child to understand.
-        - The storyboard should directly explain the topic. Do not get sidetracked.
-        - The number of scenes should be between 2 and 4.
-        - Each dialogue line must be one short sentence (max ~18 words).
-        - Do NOT include any English if the requested language is not English.
+Child's Question:
+"{question}"
 
-        Return ONLY a valid JSON object.
-        """
+Language:
+{lang_name}
+
+STRICT RULES:
+- The storyboard MUST directly answer the child's question.
+- Stay strictly focused on the topic. Do NOT add extra information.
+- Explain using simple cause-and-effect ideas a child can understand.
+- Imagine what the child would see (sky, sun, objects, actions).
+- Use only simple, everyday words.
+- Each scene should explain ONE small idea.
+- Do NOT ask new questions in the dialogue.
+- Do NOT use metaphors or comparisons.
+- Do NOT include personal details or assumptions.
+
+STRUCTURE RULES:
+- Number of scenes: 2 to 4 only.
+- Each scene must have:
+  - "scene": a number starting from 1
+  - "background": a very simple visual setting (2–5 words)
+  - "dialogue": one short sentence (maximum 18 words)
+- Dialogue must be calm, friendly, and clear.
+- If the language is not English, do NOT use English words.
+
+OUTPUT RULES:
+- Return ONLY valid JSON.
+- No explanations, no markdown, no extra text.
+
+JSON FORMAT:
+{{
+    "scenes": [
+        {{
+            "scene": 1,
+            "background": "...",
+            "dialogue": "..."
+        }}
+    ]
+}}
+"""
+
 
         data = { 
             "model": self.model,

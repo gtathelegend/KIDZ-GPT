@@ -52,6 +52,22 @@ export default defineConfig({
         target: "http://localhost:8000",
         changeOrigin: true,
       },
+      "/translate": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/explainer": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/generate-quiz": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/topic-image": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
     },
   },
 });

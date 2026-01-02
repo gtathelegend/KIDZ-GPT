@@ -39,6 +39,7 @@ export default function ScenePlayer({
     scene.dialogue?.text ||
     (typeof (scene as any).dialogue === "string" ? (scene as any).dialogue : "") ||
     "";
+  const shouldShowSubtitle = Boolean(playing && subtitle.trim());
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -56,7 +57,7 @@ export default function ScenePlayer({
         </Canvas>
       </div>
 
-      <div className="subtitle">{subtitle}</div>
+      {shouldShowSubtitle ? <div className="subtitle">{subtitle}</div> : null}
     </div>
   );
 }

@@ -43,6 +43,74 @@ const readJsonFromUrl = (url: URL): Promise<any> => {
   });
 };
 
+const toWikiLang = (input: string): string => {
+  const lang = String(input || "").trim().toLowerCase();
+  const primary = (lang.includes("-") ? lang.split("-")[0] : lang) || "en";
+  const supported = new Set(["en", "hi", "bn", "ta", "te"]);
+  return supported.has(primary) ? primary : "en";
+};
+
+const wikiBaseFor = (lang: string): string => {
+  const code = toWikiLang(lang);
+  return `https://${code}.wikipedia.org`;
+};
+
+const fetchTopicImageFromWikipedia = async (args: {
+  query: string;
+  lang: string;
+}): Promise<{ imageUrl: string; title: string; pageUrl: string } | null> => {
+  const query = String(args.query || "").trim();
+  if (!query) return null;
+
+  const wikiBase = wikiBaseFor(args.lang);
+
+  // Use the MediaWiki API search to find the best-matching page and a thumbnail.
+  // This is much more reliable than exact-title summary lookups (e.g. "moon" vs "Moon").
+  const searchUrl = new URL(`${wikiBase}/w/api.php`);
+  searchUrl.searchParams.set("action", "query");
+  searchUrl.searchParams.set("format", "json");
+  searchUrl.searchParams.set("generator", "search");
+  searchUrl.searchParams.set("gsrsearch", query);
+  searchUrl.searchParams.set("gsrlimit", "1");
+  searchUrl.searchParams.set("utf8", "1");
+  searchUrl.searchParams.set("redirects", "1");
+  searchUrl.searchParams.set("prop", "pageimages|info");
+  searchUrl.searchParams.set("inprop", "url");
+  searchUrl.searchParams.set("pithumbsize", "800");
+
+  const searchData = await readJsonFromUrl(searchUrl);
+  const pagesObj = searchData?.query?.pages || {};
+  const pages = Object.values(pagesObj) as any[];
+  const page = pages[0];
+
+  // Best effort extraction of image + page URL
+  const pageUrl = typeof page?.fullurl === "string" ? page.fullurl : "";
+  const title = typeof page?.title === "string" ? page.title : query;
+  const imageUrl = typeof page?.thumbnail?.source === "string" ? page.thumbnail.source : "";
+
+  if (imageUrl) {
+    return { imageUrl, title, pageUrl };
+  }
+
+  // Fallback: Wikipedia REST summary sometimes has a thumbnail even when pageimages doesn't.
+  const encodedTitle = encodeURIComponent(String(title).replace(/\s+/g, " "));
+  const summaryUrl = new URL(`${wikiBase}/api/rest_v1/page/summary/${encodedTitle}`);
+  const summaryData = await readJsonFromUrl(summaryUrl);
+  const summaryImage = summaryData?.thumbnail?.source || summaryData?.originalimage?.source || "";
+  if (summaryImage) {
+    return {
+      imageUrl: summaryImage,
+      title: summaryData?.title || title,
+      pageUrl:
+        summaryData?.content_urls?.desktop?.page ||
+        summaryData?.content_urls?.mobile?.page ||
+        pageUrl,
+    };
+  }
+
+  return null;
+};
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -142,56 +210,35 @@ export async function registerRoutes(
   };
 
   app.all("/process", proxyToBackend);
+  app.all("/explainer", proxyToBackend);
+  app.all("/generate-quiz", proxyToBackend);
 
   // Fetch a topic image from Wikipedia/Wikimedia (thumbnail if available).
   // Client calls /topic-image?query=Solar%20System
   app.get("/topic-image", async (req: Request, res: Response) => {
     try {
       const query = String(req.query.query || "").trim();
+      const lang = String(req.query.lang || "en");
       if (!query) {
         res.status(400).json({ error: "Missing query" });
         return;
       }
-
-      // Use the MediaWiki API search to find the best-matching page and a thumbnail.
-      // This is much more reliable than exact-title summary lookups (e.g. "moon" vs "Moon").
-      const searchUrl = new URL("https://en.wikipedia.org/w/api.php");
-      searchUrl.searchParams.set("action", "query");
-      searchUrl.searchParams.set("format", "json");
-      searchUrl.searchParams.set("generator", "search");
-      searchUrl.searchParams.set("gsrsearch", query);
-      searchUrl.searchParams.set("gsrlimit", "1");
-      searchUrl.searchParams.set("prop", "pageimages|info");
-      searchUrl.searchParams.set("inprop", "url");
-      searchUrl.searchParams.set("pithumbsize", "800");
-
-      const searchData = await readJsonFromUrl(searchUrl);
-      const pagesObj = searchData?.query?.pages || {};
-      const pages = Object.values(pagesObj) as any[];
-      const page = pages[0];
-
-      // Best effort extraction of image + page URL
-      const pageUrl = typeof page?.fullurl === "string" ? page.fullurl : "";
-      const title = typeof page?.title === "string" ? page.title : query;
-      const imageUrl = typeof page?.thumbnail?.source === "string" ? page.thumbnail.source : "";
-
-      if (imageUrl) {
-        res.json({ imageUrl, title, pageUrl });
+      const primary = await fetchTopicImageFromWikipedia({ query, lang });
+      if (primary) {
+        res.json(primary);
         return;
       }
 
-      // Fallback: Wikipedia REST summary sometimes has a thumbnail even when pageimages doesn't.
-      const encodedTitle = encodeURIComponent(String(title).replace(/\s+/g, " "));
-      const summaryUrl = new URL(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodedTitle}`);
-      const summaryData = await readJsonFromUrl(summaryUrl);
-      const summaryImage = summaryData?.thumbnail?.source || summaryData?.originalimage?.source || "";
-      if (summaryImage) {
-        res.json({
-          imageUrl: summaryImage,
-          title: summaryData?.title || title,
-          pageUrl: summaryData?.content_urls?.desktop?.page || summaryData?.content_urls?.mobile?.page || pageUrl,
-        });
-        return;
+      // Important fallback: when the user speaks a non-English language, the topic string
+      // can still be English (or vice-versa). If the requested language wiki has no image,
+      // try English before giving up.
+      const requested = toWikiLang(lang);
+      if (requested !== "en") {
+        const fallback = await fetchTopicImageFromWikipedia({ query, lang: "en" });
+        if (fallback) {
+          res.json(fallback);
+          return;
+        }
       }
 
       res.status(404).json({ error: "No image found" });
