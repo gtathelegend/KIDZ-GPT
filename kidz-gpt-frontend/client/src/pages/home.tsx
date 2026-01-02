@@ -7,6 +7,8 @@ import scienceExperimentImage from "@assets/generated_images/fun_science_experim
 import oceanLifeImage from "@assets/generated_images/cute_3d_panda_toy_on_wheels.png";
 import dinosaursImage from "@assets/generated_images/cute_3d_minion_toy_character.png";
 import artImage from "@assets/generated_images/creative_art_and_drawing_illustration.png";
+import ScenePlayer from "@/components/ScenePlayer";
+import sceneData from "@/data/sampleScene.json";
 
 interface ChatMessage {
   actor: "kid" | "ai";
@@ -41,12 +43,12 @@ export default function Home() {
   const [language, setLanguage] = useState("auto");
   const [speakingDialogueIndex, setSpeakingDialogueIndex] = useState<number | null>(null);
   
-  // Voice settings for browser TTS - sweet, clear, professional female voice
+  // Voice settings for browser TTS - clear, professional male voice
   const [voiceSettings] = useState({
-    pitch: 1.2,  // A bit higher for a sweeter, more engaging feminine voice (0-2)
+    pitch: 0.9,  // Slightly lower pitch tends to sound more masculine (0-2)
     rate: 0.95,   // Slightly faster than before, but still very clear and professional (0.1-10)
     volume: 1.0,  // Max volume for clarity
-    preferFemale: true
+    preferFemale: false
   });
 
   const streamRef = useRef<MediaStream | null>(null);
@@ -145,6 +147,45 @@ export default function Home() {
       if (name.includes("male") || name.includes("man") || name.includes("boy") || name.includes("david") ||
           name.includes("mark") || name.includes("richard") || name.includes("james") ||
           name.includes("daniel") || name.includes("thomas") || name.includes("alex")) score -= 100;
+    } else {
+      // MALE VOICE PREFERENCE
+      if (name.includes("male") || name.includes("man") || name.includes("boy")) score += 200;
+
+      // Common male voice names across platforms
+      if (
+        name.includes("david") ||
+        name.includes("mark") ||
+        name.includes("george") ||
+        name.includes("james") ||
+        name.includes("daniel") ||
+        name.includes("thomas") ||
+        name.includes("alex") ||
+        name.includes("ravi")
+      ) {
+        score += 180;
+      }
+
+      // De-prioritize common female voices
+      if (name.includes("female") || name.includes("woman") || name.includes("girl")) score -= 120;
+      if (
+        name.includes("zira") ||
+        name.includes("samantha") ||
+        name.includes("karen") ||
+        name.includes("susan") ||
+        name.includes("linda") ||
+        name.includes("heather") ||
+        name.includes("hazel") ||
+        name.includes("tessa") ||
+        name.includes("veena") ||
+        name.includes("priya") ||
+        name.includes("neela") ||
+        name.includes("sophia") ||
+        name.includes("olivia") ||
+        name.includes("emma") ||
+        name.includes("ava")
+      ) {
+        score -= 100;
+      }
     }
 
     // HIGH-QUALITY VOICE INDICATORS (professional, clear)
@@ -268,7 +309,7 @@ export default function Home() {
       console.warn(`⚠️ No suitable voice found for ${langTag}, using default`);
     }
 
-    // Apply voice settings for sweet, clear, professional female voice
+    // Apply voice settings
     const primary = langTag.split("-")[0]?.toLowerCase();
     
     utterance.volume = voiceSettings.volume;
@@ -823,31 +864,15 @@ export default function Home() {
               <div className="absolute top-10 left-10 w-20 h-20 bg-white opacity-20 rounded-full blur-xl"></div>
               <div className="absolute bottom-10 right-10 w-32 h-32 bg-[var(--bg-secondary)] opacity-30 rounded-full blur-2xl"></div>
 
-              {/* Main Character */}
-              <div className="relative z-10 transform hover:scale-105 transition-transform duration-500">
-                <img 
-                  src={robotImage} 
-                  alt="Friendly Robot Tutor" 
-                  className="max-h-[300px] object-contain drop-shadow-2xl"
-                />
+              {/* Main Character (3D) */}
+              <div className="relative z-10 w-full h-full px-4 py-4">
+                <ScenePlayer scenes={sceneData.scenes} />
               </div>
 
               {/* Reward Badge (Floating) */}
               <div className="absolute top-4 right-4 reward-badge shadow-lg animate-bounce">
                 <Star fill="#5D4037" size={24} />
                 <span className="ml-2 font-bold">+10 XP</span>
-              </div>
-            </div>
-
-            {/* HIGHLIGHT BAR */}
-            <div className="bg-white rounded-full px-6 py-4 flex items-center gap-4 shadow-[var(--shadow-soft)] border-2 border-[var(--border-soft)]">
-              <div className="bg-[var(--bg-learning)] p-3 rounded-full text-[var(--cta-voice)]">
-                <Volume2 size={24} />
-              </div>
-              <div className="flex-1 overflow-hidden" aria-live="polite">
-                <span className="text-xl text-[var(--text-secondary)] font-medium">
-                  {currentSubtitle}
-                </span>
               </div>
             </div>
 

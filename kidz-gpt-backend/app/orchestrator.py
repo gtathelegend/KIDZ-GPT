@@ -5,6 +5,7 @@ from services.stt_service import transcribe_audio
 from services.language_service import detect_language
 from services.safety_service import is_safe
 from services.cache_service import get, set
+from services.animation_script_service import build_animation_scenes
 from agents.intent_agent import extract_intent
 from agents.script_agent import generate_storyboard
 # Non-dialogue explanation + key points for the topic section
@@ -52,8 +53,8 @@ async def process_audio(audio_file, language: str = "en"):
 
     # 3️⃣ Cache check (after text exists)
     cached = get(text)
-    # Avoid returning old cached payloads that don't include the new explainer block.
-    if cached and isinstance(cached, dict) and cached.get("explainer"):
+    # Avoid returning old cached payloads that don't include the new fields.
+    if cached and isinstance(cached, dict) and cached.get("explainer") and cached.get("animation_scenes"):
         return cached
 
     # 4️⃣ Language detection and validation
@@ -180,12 +181,25 @@ async def process_audio(audio_file, language: str = "en"):
         scene["duration"] = 4
         scene["character"] = "kid_avatar"
 
+    # 8.5️⃣ Build 3D animation script based on the response + explainer
+    animation_scenes = []
+    try:
+        animation_scenes = build_animation_scenes(
+            storyboard_scenes=storyboard.get("scenes", []),
+            explainer=explainer,
+            language=language,
+        )
+    except Exception as e:
+        print(f"⚠️ Animation script generation failed: {e}")
+        animation_scenes = []
+
     result = {
         "language": language,
         "original_text": text,
         "intent": intent,
         "explainer": explainer,
-        "scenes": storyboard["scenes"]
+        "scenes": storyboard["scenes"],
+        "animation_scenes": animation_scenes,
     }
 
     # 9️⃣ Cache result

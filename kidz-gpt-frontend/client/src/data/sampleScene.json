@@ -1,0 +1,28 @@
+{
+  "scenes": [
+    {
+      "scene_id": 1,
+      "animation": { "action": "wave_hello", "loop": false },
+      "dialogue": {
+        "text": "Hello! Let’s learn something fun today!"
+      },
+      "duration": 3
+    },
+    {
+      "scene_id": 2,
+      "animation": { "action": "talk_question", "loop": true },
+      "dialogue": {
+        "text": "Have you ever wondered why the moon disappears in the daytime?"
+      },
+      "duration": 4
+    },
+    {
+      "scene_id": 3,
+      "animation": { "action": "celebrate_small", "loop": false },
+      "dialogue": {
+        "text": "Great job! Now you know the answer!"
+      },
+      "duration": 3
+    }
+  ]
+}
