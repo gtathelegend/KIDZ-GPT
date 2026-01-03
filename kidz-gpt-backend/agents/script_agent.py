@@ -11,7 +11,7 @@ class ScriptAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
         # Allow a dedicated storyboard model; fallback to the general model.
-        self.model = os.getenv("OLLAMA_MODEL_SCRIPT", os.getenv("OLLAMA_MODEL", "gpt-oss:20b-cloud"))
+        self.model = os.getenv("OLLAMA_MODEL_SCRIPT", os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud"))
 
     async def _generate_storyboard_from_ollama(self, intent: Dict[str, Any], language: str, question: str = "") -> Dict[str, Any]:
         topic = (intent or {}).get("topic") or "a random topic"

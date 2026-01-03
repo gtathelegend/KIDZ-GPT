@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+import hashlib
+import os
 import re
 
 # Action names MUST match what exists in the .glb.
@@ -15,7 +17,6 @@ VALID_ACTIONS = {
     "question",
     "suprised",
     "thinking",
-    "Tpose",
     "walking",
 }
 
@@ -67,17 +68,31 @@ def build_animation_scenes(
 
     lang = (language or "en").lower().split("-")[0]
 
+    # character_pref = (os.getenv("KIDZ_CHARACTER") or "boy").strip().lower()
+    # if character_pref == "random":
+    #     seed_text = "".join(
+    #         [str((s or {}).get("dialogue") or "") for s in (storyboard_scenes or [])[:3]]
+    #     )
+    #     seed = f"{seed_text}|{lang}".encode("utf-8")
+    #     character = "girl" if (hashlib.sha256(seed).digest()[0] % 2 == 0) else "boy"
+    # elif character_pref in {"boy", "girl"}:
+    #     character = character_pref
+    # else:
+    #     character = "boy"
+    character = "girl"
+
     out: List[Dict[str, Any]] = []
 
     # Optional, English-only interaction scenes (safe for now; avoids mixing languages).
     if lang == "en":
         title = (explainer or {}).get("title") or ""
-        opener = "Hi! I’m your learning buddy. Let’s learn together!"
+        opener = "Hi! I'm your learning buddy. Let's learn together!"
         if title:
-            opener = f"Hi! I’m your learning buddy. Today we’ll learn about {title}."
+            opener = f"Hi! I'm your learning buddy. Today we'll learn about {title}."
         out.append(
             {
                 "scene_id": 0,
+                "character": character,
                 "animation": {"action": "hello", "loop": False},
                 "dialogue": {"text": opener},
                 "duration": 3,
@@ -100,6 +115,7 @@ def build_animation_scenes(
         out.append(
             {
                 "scene_id": int((s or {}).get("scene") or (idx + 1)),
+                "character": character,
                 "animation": {"action": action, "loop": loop},
                 "dialogue": {"text": dialogue},
                 "duration": 4,
@@ -111,8 +127,9 @@ def build_animation_scenes(
         out = [
             {
                 "scene_id": 1,
+                "character": character,
                 "animation": {"action": "neutral", "loop": True},
-                "dialogue": {"text": "Let’s learn something fun together!" if lang == "en" else ""},
+                "dialogue": {"text": "Let's learn something fun together!" if lang == "en" else ""},
                 "duration": 4,
             }
         ]
@@ -122,6 +139,7 @@ def build_animation_scenes(
         out.append(
             {
                 "scene_id": 999,
+                "character": character,
                 "animation": {"action": "bye", "loop": False},
                 "dialogue": {"text": "Want to ask me another question?"},
                 "duration": 3,
@@ -129,3 +147,7 @@ def build_animation_scenes(
         )
 
     return out
+
+
+
+

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+import hashlib
 import json
 import os
 import re
@@ -18,7 +19,6 @@ VALID_ACTIONS = [
     "question",
     "suprised",
     "thinking",
-    "Tpose",
     "walking",
 ]
 
@@ -62,8 +62,6 @@ def _normalize_action(action: str) -> str:
         "clap": "claping",
         "surprised": "suprised",
         "surprise": "suprised",
-        "tpose": "Tpose",
-        "t-pose": "Tpose",
     }
 
     if lower in aliases:
@@ -80,7 +78,7 @@ def _normalize_action(action: str) -> str:
 class AnimationAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model = os.getenv("OLLAMA_MODEL_ANIMATION", os.getenv("OLLAMA_MODEL", "gpt-oss:20b-cloud"))
+        self.model = os.getenv("OLLAMA_MODEL_ANIMATION", os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud"))
 
     async def generate_animation_scenes(
         self,
@@ -98,6 +96,15 @@ class AnimationAgent:
             "ta": "Tamil (தமிழ்)",
             "te": "Telugu (తెలుగు)",
         }.get(lang_code, language or "English")
+
+        character_pref = (os.getenv("KIDZ_CHARACTER") or "girl").strip().lower()
+        if character_pref == "random":
+            seed = f"{topic}|{question}|{lang_code}".encode("utf-8")
+            character = "girl" if (hashlib.sha256(seed).digest()[0] % 2 == 0) else "boy"
+        elif character_pref in {"boy", "girl"}:
+            character = character_pref
+        else:
+            character = "girl"
 
         # Reduce payload: pass just dialogue lines.
         dialogue_lines: List[str] = []
@@ -127,7 +134,7 @@ Any incorrect action name or extra text will break the animation system.
 
         prompt = f"""
 Create an animated explanation for a child by mapping dialogue beats
-to character animation actions.
+to character animation actions that feel lively and friendly.
 
 Language:
 {lang_name}
@@ -138,7 +145,7 @@ Topic:
 Child's Question:
 {question}
 
-AVAILABLE CHARACTER ACTIONS
+AVAILABLE CHARACTER ACTIONS (kid-friendly moves only)
 (You MUST choose EXACTLY one action from this list for each scene):
 {json.dumps(VALID_ACTIONS, ensure_ascii=False)}
 
@@ -153,7 +160,8 @@ STRICT RULES:
 - Each scene MUST include exactly one animation action.
 - The animation action must match the intent of the dialogue line.
 - Keep dialogue.text short and simple (maximum 18 words).
-- Make the tone friendly, encouraging, and calm.
+- Tone must be warm, playful, encouraging, and easy for a 7-year-old.
+- Use upbeat verbs and supportive phrases; add gentle cheers on praise moments.
 - Do NOT ask new questions unless the original dialogue line is a question.
 - Do NOT add new facts or explanations.
 - Do NOT include personal references.
@@ -168,10 +176,10 @@ STRUCTURE RULES:
   - false for greeting, reacting, celebrating, or ending actions
 
 ACTION SELECTION GUIDELINES:
-- Use greeting actions for the first scene.
+- Start with a friendly greeting.
 - Use question actions when the dialogue expresses curiosity.
-- Use thinking or explaining actions for explanations.
-- Use celebration or positive reaction actions when praising or concluding.
+- Use thinking or neutral/idle for calm explaining beats; alternate to avoid feeling frozen.
+- Use celebration (claping/hello) or upbeat motions on praise/encouragement.
 - Use ending actions for the final scene.
 
 OUTPUT FORMAT (MUST MATCH EXACTLY):
@@ -229,6 +237,7 @@ OUTPUT FORMAT (MUST MATCH EXACTLY):
             normalized.append(
                 {
                     "scene_id": int(s.get("scene_id") or (idx + 1)),
+                    "character": character,
                     "animation": {"action": action, "loop": loop},
                     "dialogue": {"text": text},
                     "duration": duration,

@@ -11,7 +11,7 @@ class IntentAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
         # Allow a dedicated intent model; fallback to the general model.
-        self.model = os.getenv("OLLAMA_MODEL_INTENT", os.getenv("OLLAMA_MODEL", "gpt-oss:20b-cloud"))
+        self.model = os.getenv("OLLAMA_MODEL_INTENT", os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud"))
 
     async def _extract_intent_from_ollama(self, text: str, language: str = "en") -> Dict[str, Any]:
         lang_code = (language or "en").strip().lower().split("-")[0]

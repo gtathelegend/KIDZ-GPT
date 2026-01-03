@@ -186,18 +186,18 @@ export default function Landing() {
             <div className="bg-[var(--cta-voice)] rounded-[2rem] p-8 flex justify-between items-center text-white shadow-xl max-w-lg mt-12 relative overflow-hidden">
                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
                <div className="text-center z-10">
-                 <div className="text-sm opacity-80 font-medium">Lessons</div>
-                 <div className="text-3xl font-black">1000+</div>
+                 <div className="text-sm opacity-80 font-medium">Languages</div>
+                 <div className="text-3xl font-black">15</div>
                </div>
                <div className="h-10 w-[1px] bg-white/20"></div>
                <div className="text-center z-10">
-                 <div className="text-sm opacity-80 font-medium">Explorers</div>
-                 <div className="text-3xl font-black">20k+</div>
+                 <div className="text-sm opacity-80 font-medium">Ages</div>
+                 <div className="text-3xl font-black">5-12</div>
                </div>
                <div className="h-10 w-[1px] bg-white/20"></div>
                <div className="text-center z-10">
-                 <div className="text-sm opacity-80 font-medium">Happy Kids</div>
-                 <div className="text-3xl font-black">45k+</div>
+                 <div className="text-sm opacity-80 font-medium">Characters</div>
+                 <div className="text-3xl font-black">3</div>
                </div>
             </div>
           </div>

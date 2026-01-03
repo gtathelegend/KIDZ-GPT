@@ -1,36 +1,205 @@
 from __future__ import annotations
-
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import json
 import os
 import re
 
 import httpx
 
-from models.schemas import ExplainerSchema
+VALID_ACTIONS = {
+    "claping",
+    "hello",
+    "bye",
+    "idle",
+    "jump",
+    "neutral",
+    "question",
+    "suprised",
+    "thinking",
+    "walking",
+}
 
+
+# ---------- Utility helpers ----------
+
+def _estimate_duration(text: str) -> int:
+    """
+    Estimate scene duration based on dialogue length.
+    Keeps animation pacing natural.
+    """
+    if not text:
+        return 3
+    words = len(text.split())
+    return min(5, max(2, round(words / 3)))
+
+
+def _is_explanatory(text: str) -> bool:
+    return any(
+        k in text
+        for k in ["because", "so", "this is why", "that is why", "means", "helps", "makes"]
+    )
+
+
+# ---------- Action selection ----------
+
+def _pick_action_from_text(text: str, *, idx: int, total: int) -> str:
+    t = (text or "").strip().lower()
+
+    # Positional anchors
+    if idx == 0:
+        return "hello"
+
+    if idx == total - 1:
+        if any(k in t for k in ["bye", "goodbye", "see you", "we learned", "today we learned"]):
+            return "bye"
+
+    # Praise / encouragement
+    if any(k in t for k in ["great", "awesome", "well done", "good job", "nice work", "yay"]):
+        return "claping"
+
+    # Question detection
+    if "?" in t or re.match(r"^(do|did|can|could|why|what|how|when|where)\b", t):
+        return "question"
+
+    # Thinking / explaining
+    if _is_explanatory(t) or any(k in t for k in ["think", "imagine", "remember"]):
+        return "thinking"
+
+    # Surprise / emphasis
+    if any(k in t for k in ["wow", "amazing", "surprise", "oh", "whoa"]):
+        return "suprised"
+
+    # Movement intent
+    if any(k in t for k in ["walk", "go", "come", "move"]):
+        return "walking"
+
+    if any(k in t for k in ["jump", "hop"]):
+        return "jump"
+
+    # Fallback alternation for natural idle motion
+    return "idle" if idx % 2 else "neutral"
+
+
+# ---------- Main builder ----------
+
+def build_animation_scenes(
+    *,
+    storyboard_scenes: List[Dict[str, Any]],
+    explainer: Optional[Dict[str, Any]] = None,
+    language: str = "en",
+) -> List[Dict[str, Any]]:
+    """
+    Builds animation-friendly scenes optimized for real-time 3D characters.
+    """
+
+    lang = (language or "en").lower().split("-")[0]
+    out: List[Dict[str, Any]] = []
+
+    # ---------- Optional opener (English only, safe) ----------
+    if lang == "en":
+        title = (explainer or {}).get("title") or ""
+        opener = (
+            f"Hi! Today we will learn about {title}."
+            if title
+            else "Hi! Let's learn something fun together!"
+        )
+        out.append(
+            {
+                "scene_id": 0,
+                "animation": {"action": "hello", "loop": False},
+                "dialogue": {"text": opener},
+                "duration": 3,
+            }
+        )
+
+    total = len(storyboard_scenes or [])
+
+    for idx, s in enumerate(storyboard_scenes or []):
+        dialogue = str((s or {}).get("dialogue") or "").strip()
+        if not dialogue:
+            continue
+
+        action = _pick_action_from_text(dialogue, idx=idx, total=max(1, total))
+        if action not in VALID_ACTIONS:
+            action = "neutral"
+
+        # Loop only calm explanatory animations
+        loop = action in {"idle", "neutral", "thinking"}
+
+        out.append(
+            {
+                "scene_id": int((s or {}).get("scene") or (idx + 1)),
+                "animation": {"action": action, "loop": loop},
+                "dialogue": {"text": dialogue},
+                "duration": _estimate_duration(dialogue),
+            }
+        )
+
+    # ---------- Fallback ----------
+    if not out:
+        out.append(
+            {
+                "scene_id": 1,
+                "animation": {"action": "neutral", "loop": True},
+                "dialogue": {
+                    "text": "Let's learn something fun together!"
+                    if lang == "en"
+                    else ""
+                },
+                "duration": 3,
+            }
+        )
+
+    # ---------- Optional closer (English only) ----------
+    if lang == "en":
+        out.append(
+            {
+                "scene_id": 999,
+                "animation": {"action": "bye", "loop": False},
+                "dialogue": {"text": "Want to learn something else next?"},
+                "duration": 3,
+            }
+        )
+
+    return out
+
+
+# ---------- Topic explainer (LLM-backed) ----------
 
 class ExplainAgent:
-    def __init__(self):
+    """LLM-backed explainer for the topic section.
+
+    This generates a child-friendly explanation object:
+      {"title": str, "summary": str, "points": [str, ...]}.
+
+    If anything fails (model unreachable, bad JSON, etc.), the caller
+    is expected to fall back to a simple, hard-coded explainer.
+    """
+
+    def __init__(self) -> None:
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model = os.getenv("OLLAMA_MODEL", "gpt-oss:20b-cloud")
+        self.model = os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud")
 
     def _parse_ollama_json(self, response_content: Any) -> Dict[str, Any]:
+        """Best-effort JSON extraction from Ollama-style responses."""
         if isinstance(response_content, dict):
             return response_content
 
         raw = str(response_content or "").strip()
 
+        # Strip Markdown fences if present.
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
             raw = re.sub(r"\s*```$", "", raw)
             raw = raw.strip()
 
+        # Trim to outermost braces.
         start = raw.find("{")
         end = raw.rfind("}")
         if start != -1 and end != -1 and end > start:
             raw = raw[start : end + 1]
 
+        # Normalise common smart quotes.
         raw = (
             raw.replace("“", '"')
             .replace("”", '"')
@@ -38,41 +207,19 @@ class ExplainAgent:
             .replace("‘", "'")
         )
 
-        print(f"Cleaned JSON string for parsing: {raw}")
-        return json.loads(raw)
+        return json.loads(raw or "{}")
 
-    def _normalize_points(self, points: Any) -> List[str]:
-        if isinstance(points, list):
-            items = [str(x).strip() for x in points if x is not None]
-        elif isinstance(points, str):
-            # Sometimes the model returns a single string with bullets
-            items = re.split(r"\n+|•|-\s+", points)
-            items = [s.strip() for s in items if s.strip()]
-        else:
-            items = []
-
-        cleaned: List[str] = []
-        for item in items:
-            text = re.sub(r"\s+", " ", item).strip()
-            text = re.sub(r"^[•\-\s]+", "", text).strip()
-            if not text:
-                continue
-            # Avoid questions in the explainer
-            text = text.replace("?", "")
-            if len(text) < 6:
-                continue
-            if any(text.lower() == x.lower() for x in cleaned):
-                continue
-            cleaned.append(text)
-            if len(cleaned) >= 4:
-                break
-
-        return cleaned
-
-    async def explain(self, topic: str, question: str, language: str = "en") -> Dict[str, Any]:
+    async def generate_explainer(
+        self,
+        *,
+        topic: str,
+        question: str,
+        language: str = "en",
+    ) -> Dict[str, Any]:
         topic = (topic or "").strip()
         question = (question or "").strip()
         lang = (language or "en").strip().lower().split("-")[0]
+
         lang_name = {
             "en": "English",
             "hi": "Hindi (हिंदी)",
@@ -80,82 +227,36 @@ class ExplainAgent:
             "ta": "Tamil (தமிழ்)",
             "te": "Telugu (తెలుగు)",
         }.get(lang, language or "English")
-        system = """
-You are an educational explanation writer for a children's learning application.
 
-Your role is to explain one topic clearly, factually, and simply for children aged 6–10.
-You write short, easy-to-understand explanations using concrete ideas and simple language.
+        system = f"""
+You are a kind teacher for kids aged 6–10.
+Explain school topics in very simple {lang_name}.
 
-You must:
-- Explain the topic directly and accurately
-- Use simple cause-and-effect reasoning
-- Keep language calm, neutral, and factual
+Return a short explanation with:
+- A friendly title for the topic.
+- 2–3 sentences that clearly explain it.
+- 3 short bullet points with the most important ideas.
+- A Wikipedia search keyword that can find a good image for this topic.
 
-You must NOT:
-- Write stories, dialogue, or conversations
-- Ask questions
-- Address the child directly
-- Use metaphors, jokes, or dramatic language
-- Include opinions or extra facts beyond the topic
+Answer ONLY in JSON.
 """
-
 
         prompt = f"""
-Write a clear educational explanation for a child (ages 6–10).
+Create a kid-friendly explanation.
 
-Topic:
-{topic}
+Topic: {topic or '(unknown topic)'}
+Child's question: {question or '(no question provided)'}
 
-Child's Question:
-{question}
+Language: {lang_name}
 
-Language:
-{lang_name}
-
-STRICT CONTENT RULES:
-- ALL text MUST be written ONLY in {lang_name}.
-- DO NOT include any English words if {lang_name} is not English.
-- DO NOT write dialogue or conversational sentences.
-- DO NOT address the child directly.
-- DO NOT ask questions.
-- DO NOT add unrelated facts or examples.
-- Keep explanations concrete and easy to understand.
-- Use short, simple sentences only.
-
-EXAMPLE:
-Topic: "The Sun"
-Question: "Why is the sun so bright?"
-Language: "English"
-Correct JSON Output:
+RESPONSE FORMAT (JSON ONLY):
 {{
-    "title": "The Bright Sun",
-    "summary": "The Sun is a star that makes its own light, making it very bright.",
-    "points": [
-        "The Sun is a giant ball of hot gas.",
-        "It produces light and heat through a process called nuclear fusion.",
-        "This light travels through space to reach our eyes, making the Sun appear bright."
-    ]
+  "title": "string",
+  "summary": "2-3 short sentences in {lang_name}",
+  "points": ["bullet 1", "bullet 2", "bullet 3"],
+  "wikipedia_keyword": "A simple English search term to find a relevant image on Wikipedia (e.g. 'Pen', 'Moon', 'Photosynthesis')"
 }}
-
-STRUCTURE RULES:
-- Title: 2–5 simple words describing the topic.
-- Summary: 1–2 short sentences explaining the main idea.
-- Points: exactly 3 short bullet-style points explaining facts or steps.
-- Each point must explain ONE clear idea.
-
-OUTPUT RULES:
-- Return ONLY valid JSON.
-- Do NOT include explanations, comments, or extra text.
-- Follow the JSON structure exactly.
-
-REQUIRED JSON FORMAT:
-                {{
-                    "title": "...",
-                    "summary": "...",
-                    "points": ["...", "...", "..."]
-                }}
 """
-
 
         data = {
             "model": self.model,
@@ -165,68 +266,56 @@ REQUIRED JSON FORMAT:
             "format": "json",
         }
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(self.ollama_url, json=data)
             response.raise_for_status()
             payload = response.json()
 
-        print(f"Ollama raw response: {payload.get('response')}") # Log raw response
-        parsed = self._parse_ollama_json(payload.get("response", "{}"))
+        parsed = self._parse_ollama_json(payload.get("response", {}))
 
-        title = str(parsed.get("title") or topic or "Explanation").strip()
-        summary = str(parsed.get("summary") or "").strip()
-        points = self._normalize_points(parsed.get("points"))
+        title = str(parsed.get("title") or topic or question or "Fun Fact")
+        summary = str(parsed.get("summary") or "")
+        wikipedia_keyword = str(parsed.get("wikipedia_keyword") or topic or "").strip()
+        points_raw = parsed.get("points") or []
+        points: List[str] = []
+        if isinstance(points_raw, list):
+            for p in points_raw:
+                p_str = str(p or "").strip()
+                if p_str:
+                    points.append(p_str)
 
-        # Language-specific fallback text
+        # Ensure we always return a minimal, well-formed object.
         if not summary:
-            summary_by_lang = {
-                "hi": f"{title} को कुछ सरल विचारों से समझा जा सकता है।",
-                "bn": f"{title} কয়েকটি সহজ ধারণা দিয়ে বোঝা যায়।",
-                "ta": f"{title} சில எளிய எண்ணங்களால் புரிந்து கொள்ளலாம்.",
-                "te": f"{title} కొన్ని సరళమైన ఆలోచనలతో అర్థం చేసుకోవచ్చు.",
-                "en": f"{title} is something we can understand with a few simple ideas.",
-            }
-            summary = summary_by_lang.get(lang, summary_by_lang["en"])
+            summary = "This is something interesting we can learn about together!"
+        if not points:
+            points = [
+                "It has some important ideas.",
+                "We can understand it with simple examples.",
+                "Learning this will make you smarter!",
+            ]
+        if not wikipedia_keyword:
+            wikipedia_keyword = topic or "learning"
 
-        if len(points) < 3:
-            # Language-specific deterministic fallback
-            fallback_points = {
-                "hi": [
-                    "इसका एक सरल अर्थ है।",
-                    "इसके महत्वपूर्ण भाग या चरण हैं।",
-                    "यह हमें समझने में मदद करता है।",
-                ],
-                "bn": [
-                    "এর একটি সহজ অর্থ আছে।",
-                    "এর গুরুত্বপূর্ণ অংশ বা ধাপ আছে।",
-                    "এটা আমাদের বুঝতে সাহায্য করে।",
-                ],
-                "ta": [
-                    "இதற்கு ஒரு எளிய பொருள் உள்ளது.",
-                    "இதில் முக்கியமான பகுதிகள் அல்லது படிகள் உள்ளன.",
-                    "இது நமக்கு புரிந்து கொள்ள உதவுகிறது.",
-                ],
-                "te": [
-                    "దీనికి ఒక సరళమైన అర్థం ఉంది.",
-                    "దీనికి ముఖ్యమైన భాగాలు లేదా దశలు ఉన్నాయి.",
-                    "ఇది మనకు అర్థం చేసుకోవడానికి సహాయపడుతుంది.",
-                ],
-                "en": [
-                    "It has a simple meaning.",
-                    "It has important parts or steps.",
-                    "It helps us understand how something works.",
-                ],
-            }
-            points = (points + fallback_points.get(lang, fallback_points["en"]))[:3]
-
-        schema_obj = ExplainerSchema(title=title, summary=summary, points=points)
-        if hasattr(schema_obj, "model_dump"):
-            return schema_obj.model_dump()
-        return schema_obj.dict()
+        return {
+            "title": title,
+            "summary": summary,
+            "points": points,
+            "wikipedia_keyword": wikipedia_keyword,
+        }
 
 
 _default_agent = ExplainAgent()
 
 
 async def generate_explainer(topic: str, question: str, language: str = "en") -> Dict[str, Any]:
-    return await _default_agent.explain(topic, question, language)
+    """Public helper used by the orchestrator.
+
+    Wrapped this way to match the existing import:
+      from agents.explain_agent import generate_explainer
+    """
+
+    return await _default_agent.generate_explainer(
+        topic=topic,
+        question=question,
+        language=language,
+    )

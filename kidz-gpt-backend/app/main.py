@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from app.orchestrator import process_audio
+from app.orchestrator import process_audio, process_text_query
 import traceback
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -22,9 +22,6 @@ app.add_middleware(
 )
 
 
-from services.translation_service import translate_text
-from pydantic import BaseModel
-
 class TranslationRequest(BaseModel):
     text: str
     to_language: str = "en"
@@ -38,10 +35,17 @@ async def translate(request: TranslationRequest):
         print("❌ ERROR OCCURRED during translation")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class TextProcessRequest(BaseModel):
+    text: str
+    language: str = "en"
+    character: str = "girl"
 @app.post("/process")
 async def process(
     audio: UploadFile = File(...), 
-    language: str = Form("en")
+    language: str = Form("en"),
+    character: str = Form("girl")
 ):
     try:
         # Normalize language code (e.g., "en-IN" -> "en", "hi-IN" -> "hi").
@@ -55,11 +59,42 @@ async def process(
         else:
             base_language = normalized
         
-        return await process_audio(audio, base_language)
+        # Normalize character
+        char_normalized = (character or "").strip().lower()
+        if char_normalized not in ["boy", "girl"]:
+            char_normalized = "girl"
+        
+        return await process_audio(audio, base_language, char_normalized)
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:
         print("❌ ERROR OCCURRED")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/process-text")
+async def process_text(request: TextProcessRequest):
+    try:
+        normalized = (request.language or "").strip().lower()
+
+        if normalized in ["", "auto", "detect", "unknown"]:
+            base_language = "en"
+        elif "-" in normalized:
+            base_language = normalized.split("-")[0]
+        else:
+            base_language = normalized
+
+        # Normalize character
+        char_normalized = (request.character or "").strip().lower()
+        if char_normalized not in ["boy", "girl"]:
+            char_normalized = "girl"
+
+        return await process_text_query(request.text, base_language, char_normalized)
+    except TimeoutError as e:
+        raise HTTPException(status_code=504, detail=str(e))
+    except Exception as e:
+        print("❌ ERROR OCCURRED (text)")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 

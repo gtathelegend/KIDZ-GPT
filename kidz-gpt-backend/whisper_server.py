@@ -18,7 +18,9 @@ def _get_whisper_device() -> str:
 def _get_whisper_model():
     global _model
     if _model is None:
-        model_name = os.getenv("WHISPER_MODEL", "small")
+        # Use 'base' model for better multilingual support
+        # 'tiny' = weak on non-English, 'small' = good, 'base' = better, 'medium/large' = best but slower
+        model_name = os.getenv("WHISPER_MODEL", "base")
         print(f"Loading whisper model: {model_name}")
         _model = whisper.load_model(model_name, device=_get_whisper_device())
     return _model
@@ -71,20 +73,59 @@ async def transcribe_audio(file: UploadFile = File(...), language: str = "en"):
         device = _get_whisper_device()
         model = _get_whisper_model()
         
-        # Run transcription in a separate thread to avoid blocking the event loop.
-        # If language is "en" (default) OR "auto", let Whisper auto-detect.
+        # Normalize language input
         normalized_language = (language or "").strip().lower()
-        transcribe_language = None if normalized_language in ["en", "auto", "detect", "unknown", ""] else normalized_language
+        # Normalize region tags to primary ISO-639 (hi-IN -> hi) for Whisper compatibility
+        if "-" in normalized_language:
+            normalized_language = normalized_language.split("-")[0] or normalized_language
+
+        # Map common language codes to Whisper's language codes
+        # Whisper supports: en, hi, bn, ta, te, etc.
+        language_map = {
+            "hi": "hi",      # Hindi
+            "hindi": "hi",
+            "bn": "bn",      # Bengali
+            "bengali": "bn",
+            "ta": "ta",      # Tamil
+            "tamil": "ta",
+            "te": "te",      # Telugu
+            "telugu": "te",
+            "en": "en",      # English
+            "english": "en",
+        }
+        
+        # Decide transcription language
+        # If language is "auto", "detect", or empty, let Whisper auto-detect
+        if normalized_language in ["en", "auto", "detect", "unknown", ""]:
+            transcribe_language = None  # Auto-detect
+            print(f"🔍 Auto-detecting language from audio...")
+        else:
+            # Use mapped language code or fallback to normalized input
+            transcribe_language = language_map.get(normalized_language, normalized_language)
+            print(f"🎤 Transcribing with language: {transcribe_language}")
+        
+        # Transcribe with language hint
         result = await asyncio.to_thread(
-            model.transcribe, path, fp16=(device == "cuda"), language=transcribe_language
+            model.transcribe, 
+            path, 
+            fp16=(device == "cuda"), 
+            language=transcribe_language,
+            verbose=False  # Suppress verbose output
         )
         
-        # Return both text and detected language
-        detected_lang = result.get("language", language)
-        print(f"🔍 Whisper detected language: {detected_lang} (requested: {language})")
+        # Extract detected language from result
+        detected_lang = result.get("language", language or "en")
+        transcribed_text = result.get("text", "").strip()
+        
+        # Log detection results
+        if detected_lang:
+            print(f"✅ Whisper detected: {detected_lang} | Transcribed: {transcribed_text[:60]}...")
+        else:
+            print(f"⚠️ Could not detect language, using: {language}")
+            detected_lang = normalized_language or "en"
         
         return {
-            "text": result["text"],
+            "text": transcribed_text,
             "language": detected_lang
         }
     finally:

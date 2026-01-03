@@ -38,10 +38,14 @@ async def transcribe_audio(audio_file, language: str = "en"):
     files = {'file': (filename, audio_bytes, content_type or 'audio/webm')}
 
     normalized_language = (language or "").strip().lower()
-    # whisper_server auto-detects when language == "en" (it sends language=None to Whisper).
-    # Accept "auto" from the frontend and map it to "en" for that behavior.
+    # Normalize region tags to primary ISO-639 (hi-IN -> hi) for Whisper compatibility.
+    if "-" in normalized_language:
+        normalized_language = normalized_language.split("-")[0] or normalized_language
+
+    # whisper_server auto-detects when language == "auto" (transcribe_language=None).
+    # Keep auto/detect/unknown as-is to allow detection; otherwise use the primary code.
     if normalized_language in ["", "auto", "detect", "unknown"]:
-        normalized_language = "en"
+        normalized_language = "auto"
 
     data = {'language': normalized_language}
     

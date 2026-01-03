@@ -3,6 +3,8 @@ import {
   Mic,
   User,
   Volume2,
+  RotateCcw,
+  Square,
   Star,
   ChevronRight,
   AlertCircle,
@@ -49,12 +51,15 @@ interface TopicExplainer {
   tags: string[];
   imageSrc: string;
   imageAlt: string;
+  wikipediaImageUrl?: string | null;
 }
 
 type BackendExplainer = {
   title?: string;
   summary?: string;
   points?: string[];
+  wikipedia_keyword?: string;
+  image_url?: string | null;
 };
 
 type ExplainerPollResponse = {
@@ -66,6 +71,7 @@ type ExplainerPollResponse = {
 
 type Scene = {
   scene_id?: number;
+  character?: "boy" | "girl";
   animation?: {
     action?: string;
     loop?: boolean;
@@ -88,6 +94,7 @@ const normalizeTo3DScenes = (input: any): Scene[] => {
 
       return {
         scene_id: s?.scene_id ?? s?.scene ?? idx + 1,
+        character: s?.character === "girl" ? "girl" : s?.character === "boy" ? "boy" : undefined,
         animation: {
           action: s?.animation?.action ?? "neutral",
           loop: s?.animation?.loop ?? true,
@@ -110,7 +117,13 @@ export default function Home() {
   const [liveTranscript, setLiveTranscript] = useState<string>("");
   // "auto" lets the backend (Whisper) detect language from input.
   const [language, setLanguage] = useState("auto");
+  const [character, setCharacter] = useState<"boy" | "girl">(() => {
+    const saved = localStorage.getItem("kidzgpt-character");
+    return saved === "boy" || saved === "girl" ? saved : "girl";
+  });
   const [speakingDialogueIndex, setSpeakingDialogueIndex] = useState<number | null>(null);
+  const [isTextMode, setIsTextMode] = useState(false);
+  const [textInput, setTextInput] = useState("");
   
   // Quiz state
   const [showQuiz, setShowQuiz] = useState(false);
@@ -132,42 +145,27 @@ export default function Home() {
   const streamRef = useRef<MediaStream | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const topicExplainerRef = useRef<HTMLDivElement>(null);
+  const explainerScrollPendingRef = useRef<boolean>(false);
   const speechRecognitionRef = useRef<any>(null);
   const isListeningRef = useRef<boolean>(false);
   const liveTranscriptRef = useRef<string>("");
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const stopResponseRef = useRef<boolean>(false);
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const processAbortControllerRef = useRef<AbortController | null>(null);
+  const lastScenesRef = useRef<Scene[]>(sceneData.scenes);
 
   const [topicExplainer, setTopicExplainer] = useState<TopicExplainer>({
-    title: "What is a Solar System?",
-    question: "Tell me about planets!",
-    answer:
-      "Imagine a big family in space! The Sun is the parent in the middle, and all the planets (like Earth!) are the kids running in circles around it.",
-    points: [
-      "The Sun is in the middle.",
-      "Planets move around the Sun.",
-      "Earth is one of the planets.",
-    ],
-    tags: ["Space", "Science"],
-    imageSrc: solarSystemImage,
-    imageAlt: "Solar System",
+    title: "",
+    question: undefined,
+    answer: "",
+    points: [],
+    tags: [],
+    imageSrc: "",
+    imageAlt: "",
   });
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
-    {
-      actor: "kid",
-      text: "Tell me about planets!",
-    },
-    {
-      actor: "ai",
-      text: "Planets are huge round balls made of rock or gas that float in space! 🌍",
-    },
-    {
-      actor: "kid",
-      text: "Are they hot?",
-    },
-    {
-      actor: "ai",
-      text: "Some are super hot like Venus 🔥, and some are freezing cold like Neptune! ❄️",
-    },
-  ]);
+  const [hasExplainer, setHasExplainer] = useState(false);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
 
   const chatLenRef = useRef<number>(0);
 
@@ -184,12 +182,17 @@ export default function Home() {
   }, [liveTranscript]);
 
   useEffect(() => {
+    localStorage.setItem("kidzgpt-character", character);
+  }, [character]);
+
+  useEffect(() => {
     // Keep the transcript visible at the bottom while it's updating.
+    // Use 'nearest' to avoid scrolling the whole page
     if (!chatEndRef.current) return;
     if (!isListening && !isProcessing) return;
     if (!liveTranscript) return;
     const id = setTimeout(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
     }, 50);
     return () => clearTimeout(id);
   }, [liveTranscript, isListening, isProcessing]);
@@ -197,16 +200,21 @@ export default function Home() {
   const [isSceneActive, setIsSceneActive] = useState(false);
   const [isScenePlaying, setIsScenePlaying] = useState(false);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
+  const [isSpeechActive, setIsSpeechActive] = useState(false);
+  const [isReplayRunning, setIsReplayRunning] = useState(false);
+  const [currentBackground, setCurrentBackground] = useState<"back.jpeg" | "back2.jpeg">("back.jpeg");
 
-  // Auto-scroll to bottom when chat history changes (with debounce to prevent glitches)
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (chatEndRef.current) {
-        chatEndRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      }
-    }, 100);
-    return () => clearTimeout(timeoutId);
-  }, [chatHistory]);
+    if (!hasExplainer) return;
+    if (isSceneActive) return;
+    if (!explainerScrollPendingRef.current) return;
+    explainerScrollPendingRef.current = false;
+    setTimeout(() => {
+      topicExplainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+  }, [hasExplainer, isSceneActive]);
+
+  // Removed auto-scroll on chat history changes to prevent unwanted scrolling during use
 
   const toSpeechLangTag = (lang: string): string => {
     const normalized = (lang || "").trim();
@@ -224,6 +232,117 @@ export default function Home() {
     if (normalized.includes("-")) return normalized;
 
     return `${normalized}-IN`;
+  };
+
+  const handleBackendResult = async (data: any, languageAtRequest: string) => {
+    try {
+      // Handle error responses from backend
+      if (data?.error) {
+        setError(data.message || data.error);
+        setCurrentSubtitle("Oops! Please try a different question.");
+        setIsProcessing(false);
+        return;
+      }
+
+    // Use backend-detected language (from Whisper) for everything
+    // This ensures responses and TTS match the input language
+    let detectedLanguage: string = data?.language || languageAtRequest;
+
+    // Normalize language code (backend often returns ISO-639 like "hi")
+    if (detectedLanguage && detectedLanguage !== "auto" && detectedLanguage !== "unknown") {
+      const baseLang = detectedLanguage.split("-")[0].toLowerCase();
+      const langMap: Record<string, string> = {
+        hi: "hi-IN",
+        bn: "bn-IN",
+        ta: "ta-IN",
+        te: "te-IN",
+        en: "en-IN",
+      };
+
+      detectedLanguage = langMap[baseLang] || toSpeechLangTag(detectedLanguage);
+      setLanguage(detectedLanguage);
+      console.log(`🌐 Language detected: ${String(data?.language)} → Using: ${detectedLanguage} for responses and TTS`);
+    } else {
+      detectedLanguage = languageAtRequest === "auto" ? "en-IN" : languageAtRequest;
+    }
+
+    const ttsLanguage = detectedLanguage;
+
+    const normalizeDialogueKey = (input: string) =>
+      String(input || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+
+    // Add user message first
+    const originalText = typeof data?.original_text === "string" ? data.original_text.trim() : "";
+    if (originalText) {
+      setChatHistory((prev) => [...prev, { actor: "kid", text: originalText }]);
+      chatLenRef.current += 1;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    // Clear any live transcript once the backend transcription arrives.
+    setLiveTranscript("");
+
+    // Backend response has arrived; drop processing state so animation resumes and preloader hides.
+    setIsProcessing(false);
+
+    // Toggle background image for variety
+    setCurrentBackground((prev) => (prev === "back.jpeg" ? "back2.jpeg" : "back.jpeg"));
+
+    // Start explainer processing/polling immediately (while animation plays)
+    const rawTopic = data?.intent?.topic || data?.topic || "";
+    const initialBackendExplainer: BackendExplainer | null =
+      (data?.explainer as BackendExplainer) ||
+      (data?.explanation as BackendExplainer) ||
+      null;
+    const jobId = typeof data?.job_id === "string" ? data.job_id : "";
+    const explainerPromise = jobId ? pollExplainer(jobId) : Promise.resolve(initialBackendExplainer);
+
+    // Process scenes sequentially
+    const incoming3D =
+      (data?.animation_scenes && Array.isArray(data.animation_scenes)
+        ? data.animation_scenes
+        : null) || (data?.scenes && Array.isArray(data.scenes) ? data.scenes : null);
+
+    const normalizedScenes = normalizeTo3DScenes(incoming3D);
+
+    if (normalizedScenes.length > 0) {
+      lastScenesRef.current = normalizedScenes;
+      await playScenesWithSpeech(normalizedScenes, ttsLanguage, true);
+    }
+
+    // Update the topic explainer section (image + summary) and scroll to it
+    try {
+      const backendExplainer = (await withTimeout(explainerPromise, 8000)) || initialBackendExplainer;
+
+      const nextExplainer = pickTopicExplainer({
+        topic: rawTopic,
+        question: data?.original_text,
+        backendExplainer,
+      });
+      setHasExplainer(true);
+      setTopicExplainer(nextExplainer);
+      explainerScrollPendingRef.current = true;
+
+      const imageQuery = rawTopic || data?.original_text || "";
+      const imageUrl = await fetchTopicImage(imageQuery, ttsLanguage);
+      if (imageUrl) {
+        setTopicExplainer((prev) => ({
+          ...prev,
+          imageSrc: imageUrl,
+          imageAlt: imageQuery ? String(imageQuery) : prev.imageAlt,
+        }));
+      }
+    } finally {
+      // Leave scroll position untouched so users can manually navigate.
+    }
+
+      setCurrentSubtitle("Ready for your next question!");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const toSpeechRecognitionLangTag = (lang: string): string => {
@@ -309,6 +428,28 @@ export default function Home() {
     } finally {
       speechRecognitionRef.current = null;
     }
+  };
+
+  const stopSpeechNow = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // ignore
+    }
+    currentUtteranceRef.current = null;
+    setIsSpeechActive(false);
+  };
+
+  const abortInFlightProcessing = () => {
+    const controller = processAbortControllerRef.current;
+    if (!controller) return;
+    try {
+      controller.abort();
+    } catch {
+      // ignore
+    }
+    processAbortControllerRef.current = null;
   };
 
   const scoreVoice = (voice: SpeechSynthesisVoice, langTag: string, preferFemale: boolean = true) => {
@@ -469,12 +610,15 @@ export default function Home() {
   const speakText = async (text: string, lang: string) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     if (!text || text.trim() === "") return;
+    if (stopResponseRef.current) return;
+    setIsSpeechActive(true);
 
     await ensureVoicesReady();
 
     const utterance = new SpeechSynthesisUtterance(text);
     const langTag = toSpeechLangTag(lang);
     utterance.lang = langTag;
+    currentUtteranceRef.current = utterance;
 
     // Get all available voices
     const voices = window.speechSynthesis.getVoices();
@@ -521,22 +665,148 @@ export default function Home() {
 
     await new Promise<void>((resolve) => {
       utterance.onend = () => {
+        if (currentUtteranceRef.current === utterance) {
+          currentUtteranceRef.current = null;
+        }
         console.log("✅ Speech completed");
+        setIsSpeechActive(false);
         resolve();
       };
       utterance.onerror = (e) => {
+        if (currentUtteranceRef.current === utterance) {
+          currentUtteranceRef.current = null;
+        }
         console.error("❌ Speech error:", e);
+        setIsSpeechActive(false);
         resolve();  // Don't block on errors
       };
-      
+
       // Cancel any ongoing speech before starting new one
-      window.speechSynthesis.cancel();
-      
+      stopSpeechNow();
+
       // Small delay to ensure cancellation is processed
       setTimeout(() => {
+        if (stopResponseRef.current) {
+          resolve();
+          return;
+        }
         window.speechSynthesis.speak(utterance);
       }, 50);
     });
+  };
+
+  const playScenesWithSpeech = async (scenesToPlay: Scene[], ttsLanguage: string, addToChat: boolean) => {
+    if (!scenesToPlay || scenesToPlay.length === 0 || stopResponseRef.current) {
+      return;
+    }
+    const seenDialogues = new Set<string>();
+    setScenes(scenesToPlay);
+    setIsSceneActive(true);
+
+    // Collect all unique dialogues for chat (combine into single message)
+    const allDialogues: string[] = [];
+    
+    for (let i = 0; i < scenesToPlay.length; i++) {
+      const scene = scenesToPlay[i];
+      const dialogue = (scene.dialogue?.text || "").trim();
+      if (!dialogue) {
+        console.warn(`⚠️ Skipping scene ${i + 1}: empty dialogue`);
+        continue;
+      }
+
+      const dialogueKey = normalizeDialogueKey(dialogue);
+      if (seenDialogues.has(dialogueKey)) {
+        console.warn(`⚠️ Skipping scene ${i + 1}: duplicate dialogue`);
+        continue;
+      }
+      seenDialogues.add(dialogueKey);
+      allDialogues.push(dialogue);
+    }
+
+    // Add combined response as a single message
+    let chatMessageIndex = chatLenRef.current;
+    if (addToChat && allDialogues.length > 0) {
+      const combinedText = allDialogues.join("\n\n");
+      setChatHistory((prev) => [...prev, { actor: "ai", text: combinedText }]);
+      chatLenRef.current += 1;
+      chatMessageIndex = chatLenRef.current - 1;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    // Now play scenes with speech
+    seenDialogues.clear();
+    for (let i = 0; i < scenesToPlay.length; i++) {
+      if (stopResponseRef.current) {
+        setIsScenePlaying(false);
+        setIsSceneActive(false);
+        setSpeakingDialogueIndex(null);
+        break;
+      }
+
+      const scene = scenesToPlay[i];
+      setCurrentSceneIndex(i);
+
+      const dialogue = (scene.dialogue?.text || "").trim();
+      if (!dialogue) {
+        continue;
+      }
+
+      const dialogueKey = normalizeDialogueKey(dialogue);
+      if (seenDialogues.has(dialogueKey)) {
+        continue;
+      }
+      seenDialogues.add(dialogueKey);
+
+      setCurrentSubtitle(dialogue);
+      setSpeakingDialogueIndex(addToChat ? chatMessageIndex : null);
+      setIsScenePlaying(true);
+
+      await speakText(dialogue, ttsLanguage);
+
+      setSpeakingDialogueIndex(null);
+      setIsScenePlaying(false);
+
+      if (i < scenesToPlay.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+
+    setIsScenePlaying(false);
+    setIsSceneActive(false);
+    setSpeakingDialogueIndex(null);
+  };
+
+  const stopResponsePlayback = () => {
+    stopResponseRef.current = true;
+    abortInFlightProcessing();
+    stopSpeechNow();
+    setSpeakingDialogueIndex(null);
+    setIsScenePlaying(false);
+    setIsSceneActive(false);
+    setIsProcessing(false);
+    setCurrentSubtitle("Response stopped. Ready when you are!");
+  };
+
+  const replayLastResponse = async () => {
+    if (isProcessing || isListening || isReplayRunning) return;
+    const lastAi = [...chatHistory].reverse().find((msg) => msg.actor === "ai");
+    const hasScenes = Array.isArray(lastScenesRef.current) && lastScenesRef.current.length > 0;
+    if (!lastAi && !hasScenes) return;
+    stopResponseRef.current = false;
+    stopSpeechNow();
+    setIsReplayRunning(true);
+    try {
+      if (hasScenes) {
+        await playScenesWithSpeech(lastScenesRef.current, language, false);
+      }
+      if (!hasScenes && lastAi) {
+        setCurrentSubtitle(lastAi.text);
+        await speakText(lastAi.text, language);
+      }
+    } finally {
+      setIsReplayRunning(false);
+      stopResponseRef.current = false;
+    }
   };
 
   const pickTopicExplainer = (args: {
@@ -575,6 +845,13 @@ export default function Home() {
       imageAlt = "Art";
     }
 
+    // Use Wikipedia image if available, otherwise use the theme-based image
+    const wikipediaImageUrl = be?.image_url || null;
+    if (wikipediaImageUrl) {
+      imageSrc = wikipediaImageUrl;
+      imageAlt = be?.title || rawTopic || "Topic Image";
+    }
+
     const tags: string[] = [];
     if (rawTopic) {
       const primary = rawTopic.split(/\s+/).filter(Boolean).slice(0, 2).join(" ");
@@ -590,6 +867,7 @@ export default function Home() {
       tags,
       imageSrc,
       imageAlt,
+      wikipediaImageUrl,
     };
   };
 
@@ -891,6 +1169,8 @@ const cleanQuery = (query: string): string => {
       isListeningRef.current = false;
       stopLiveTranscription();
       mediaRecorder?.stop();
+      stopResponseRef.current = false;
+      stopSpeechNow();
       setIsListening(false);
       setIsProcessing(true);
       setError(null);
@@ -898,8 +1178,9 @@ const cleanQuery = (query: string): string => {
     } else {
       try {
         setError(null);
+        stopResponseRef.current = false;
         if (typeof window !== "undefined" && "speechSynthesis" in window) {
-          window.speechSynthesis.cancel();
+          stopSpeechNow();
         }
 
         // Clear previous transcript and start live transcription (best-effort).
@@ -935,14 +1216,20 @@ const cleanQuery = (query: string): string => {
           const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
           const formData = new FormData();
           formData.append("audio", audioBlob, "recording.webm");
-          // Hint language to backend. Default is "auto" for best matching to spoken input.
-          formData.append("language", language);
+          // Always send "auto" to enable automatic language detection from audio
+          // Once detected, the backend will identify the language and respond accordingly
+          const langToSend = language === "auto" || language.includes("IN") ? "auto" : language;
+          formData.append("language", langToSend);
+          formData.append("character", character);
 
           try {
-            setCurrentSubtitle("Sending to AI...");
+            setCurrentSubtitle("Sending to KIDZ-GPT...");
+            const controller = new AbortController();
+            processAbortControllerRef.current = controller;
             const response = await fetch("/process", {
               method: "POST",
               body: formData,
+              signal: controller.signal,
             });
 
             // Check content-type before parsing
@@ -1005,173 +1292,13 @@ const cleanQuery = (query: string): string => {
               throw new Error(errorMsg);
             }
 
-            // Handle error responses from backend
-            if (data.error) {
-              setError(data.message || data.error);
-              setCurrentSubtitle("Oops! Please try a different question.");
-              setIsProcessing(false);
-              return;
-            }
-
-            // Use backend-detected language (from Whisper) for everything
-            // This ensures responses and TTS match the input language
-            let detectedLanguage = data.language || language;
-            
-            // Normalize language code (backend returns "hi", frontend needs "hi-IN")
-            if (detectedLanguage && detectedLanguage !== "auto" && detectedLanguage !== "unknown") {
-              // Extract base language code if it's a full tag
-              const baseLang = detectedLanguage.split("-")[0].toLowerCase();
-              
-              // Map to proper BCP-47 tag for TTS
-              const langMap: Record<string, string> = {
-                "hi": "hi-IN",
-                "bn": "bn-IN", 
-                "ta": "ta-IN",
-                "te": "te-IN",
-                "en": "en-IN"
-              };
-              
-              detectedLanguage = langMap[baseLang] || toSpeechLangTag(detectedLanguage);
-              
-              // Update language selector to match detected language
-              setLanguage(detectedLanguage);
-              
-              console.log(`🌐 Language detected: ${data.language} → Using: ${detectedLanguage} for responses and TTS`);
-            } else {
-              // Fallback to current language setting
-              detectedLanguage = language === "auto" ? "en-IN" : language;
-            }
-            
-            const ttsLanguage = detectedLanguage;
-
-            const normalizeDialogueKey = (input: string) =>
-              String(input || "")
-                .replace(/\s+/g, " ")
-                .trim()
-                .toLowerCase();
-
-            // Add user message first
-            const originalText = typeof data.original_text === "string" ? data.original_text.trim() : "";
-            if (originalText) {
-              setChatHistory((prev) => [...prev, { actor: "kid", text: originalText }]);
-              chatLenRef.current += 1;
-              // Small delay to allow UI to update
-              await new Promise((resolve) => setTimeout(resolve, 100));
-            }
-
-            // Clear any live transcript once the backend transcription arrives.
-            setLiveTranscript("");
-
-            // Start explainer processing/polling immediately (while animation plays)
-            const rawTopic = data?.intent?.topic || data?.topic || "";
-            const initialBackendExplainer: BackendExplainer | null =
-              (data?.explainer as BackendExplainer) ||
-              (data?.explanation as BackendExplainer) ||
-              null;
-            const jobId = typeof data?.job_id === "string" ? data.job_id : "";
-            const explainerPromise = jobId ? pollExplainer(jobId) : Promise.resolve(initialBackendExplainer);
-
-            // Process scenes sequentially
-            const incoming3D =
-              (data?.animation_scenes && Array.isArray(data.animation_scenes)
-                ? data.animation_scenes
-                : null) ||
-              (data?.scenes && Array.isArray(data.scenes) ? data.scenes : null);
-
-            const normalizedScenes = normalizeTo3DScenes(incoming3D);
-
-            if (normalizedScenes.length > 0) {
-              const seenDialogues = new Set<string>();
-              setScenes(normalizedScenes);
-              setIsSceneActive(true);
-              for (let i = 0; i < normalizedScenes.length; i++) {
-                const scene = normalizedScenes[i];
-                setCurrentSceneIndex(i);
-                
-                // Validate dialogue exists and is not empty
-                const dialogue = (scene.dialogue?.text || "").trim();
-                if (!dialogue) {
-                  console.warn(`⚠️ Skipping scene ${i + 1}: empty dialogue`);
-                  continue;
-                }
-
-                // De-dupe identical lines (prevents repeated/garbled outputs when backend repeats itself)
-                const dialogueKey = normalizeDialogueKey(dialogue);
-                if (seenDialogues.has(dialogueKey)) {
-                  console.warn(`⚠️ Skipping scene ${i + 1}: duplicate dialogue`);
-                  continue;
-                }
-                seenDialogues.add(dialogueKey);
-                
-                // Update subtitle
-                setCurrentSubtitle(dialogue);
-
-                // Add AI message to chat (batch update to prevent glitches)
-                const dialogueIndex = chatLenRef.current;
-                setChatHistory((prev) => [...prev, { actor: "ai", text: dialogue }]);
-                chatLenRef.current += 1;
-                
-                // Small delay to allow UI to render before playing audio
-                await new Promise((resolve) => setTimeout(resolve, 200));
-
-                // Highlight this dialogue while speaking
-                setSpeakingDialogueIndex(dialogueIndex);
-                setIsScenePlaying(true);
-
-                // Runtime TTS in the browser using the detected language
-                // This ensures audio matches the input language
-                // Frontend handles all TTS - backend no longer generates audio
-                await speakText(dialogue, ttsLanguage);
-
-                // Remove highlight after speaking
-                setSpeakingDialogueIndex(null);
-                setIsScenePlaying(false);
-
-                // Small delay between scenes for better UX
-                if (i < normalizedScenes.length - 1) {
-                  await new Promise((resolve) => setTimeout(resolve, 500));
-                }
-              }
-              setIsSceneActive(false);
-            }
-
-            // Update the topic explainer section (image + summary) and scroll to it
-            try {
-              // Prefer the deferred explainer (computed while animation played)
-              const backendExplainer =
-                (await withTimeout(explainerPromise, 8000)) || initialBackendExplainer;
-
-              const nextExplainer = pickTopicExplainer({
-                topic: rawTopic,
-                question: data?.original_text,
-                backendExplainer,
-              });
-              setTopicExplainer(nextExplainer);
-
-              // Fetch a real image from the web for this topic (non-blocking)
-              const imageQuery = rawTopic || data?.original_text || "";
-              const imageUrl = await fetchTopicImage(imageQuery, ttsLanguage);
-              if (imageUrl) {
-                setTopicExplainer((prev) => ({
-                  ...prev,
-                  imageSrc: imageUrl,
-                  imageAlt: imageQuery ? String(imageQuery) : prev.imageAlt,
-                }));
-              }
-            } finally {
-              // Scroll after the interactive explanation finishes (after TTS loop)
-              setTimeout(() => {
-                topicExplainerRef.current?.scrollIntoView({
-                  behavior: "smooth",
-                  block: "start",
-                });
-              }, 150);
-            }
-
-            setCurrentSubtitle("Ready for your next question!");
+            await handleBackendResult(data, language);
           } catch (error) {
             console.error("Processing error:", error);
             let errorMessage = "Failed to process audio. Please try again.";
+            if (error instanceof DOMException && error.name === "AbortError") {
+              errorMessage = "Request was stopped.";
+            }
             
             if (error instanceof Error) {
               // Clean up error messages for better UX
@@ -1204,6 +1331,7 @@ const cleanQuery = (query: string): string => {
               { actor: "ai", text: friendlyMessage },
             ]);
           } finally {
+            processAbortControllerRef.current = null;
             setIsProcessing(false);
           }
         };
@@ -1224,13 +1352,186 @@ const cleanQuery = (query: string): string => {
     }
   };
 
+  const handleTextSubmit = async () => {
+    const trimmed = textInput.trim();
+    if (!trimmed || isProcessing) return;
+
+    try {
+      setError(null);
+      stopResponseRef.current = false;
+      stopSpeechNow();
+      setIsProcessing(true);
+      setCurrentSubtitle("Thinking about your question...");
+
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+
+      const controller = new AbortController();
+      processAbortControllerRef.current = controller;
+      const response = await fetch("/process-text", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: trimmed,
+          language,
+          character,
+        }),
+        signal: controller.signal,
+      });
+
+      const contentType = response.headers.get("content-type") || "";
+      const isJson = contentType.includes("application/json");
+
+      if (!response.ok) {
+        let errorMessage = `Server error: ${response.status}`;
+        if (isJson) {
+          try {
+            const errorData = await response.json();
+            errorMessage =
+              errorData.detail ||
+              errorData.message ||
+              errorData.error ||
+              errorMessage;
+          } catch (e) {
+            console.error("Failed to parse error response:", e);
+          }
+        } else {
+          const text = await response.text().catch(() => "");
+          if (text.includes("<!DOCTYPE") || text.includes("<html")) {
+            errorMessage =
+              "Backend server returned an error page. Please ensure the backend is running on port 8000.";
+          } else {
+            errorMessage = text || errorMessage;
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      let data: any;
+      if (isJson) {
+        try {
+          data = await response.json();
+        } catch (jsonError) {
+          const text = await response.text().catch(() => "");
+          if (text.includes("<!DOCTYPE") || text.includes("<html")) {
+            throw new Error(
+              "Backend server returned an HTML page instead of JSON. Please ensure the backend is running and accessible.",
+            );
+          }
+          throw new Error(
+            `Failed to parse response: ${
+              jsonError instanceof Error
+                ? jsonError.message
+                : "Unknown error"
+            }`,
+          );
+        }
+      } else {
+        const text = await response.text().catch(() => "");
+        let errorMsg = `Backend returned ${contentType} instead of JSON.`;
+
+        if (
+          text.includes("<!DOCTYPE") ||
+          text.includes("<html") ||
+          text.includes("404") ||
+          text.includes("Not Found")
+        ) {
+          errorMsg =
+            "Backend endpoint not found. Please ensure the backend server is running on port 8000 and the /process-text endpoint exists.";
+        } else if (
+          text.includes("500") ||
+          text.includes("Internal Server Error")
+        ) {
+          errorMsg = "Backend server error. Please check the backend logs.";
+        } else if (response.status === 502 || response.status === 503) {
+          errorMsg =
+            "Backend server is not available. Please ensure it's running on port 8000.";
+        }
+
+        console.error("Non-JSON response from backend:", {
+          status: response.status,
+          contentType,
+          textPreview: text.substring(0, 200),
+        });
+
+        throw new Error(errorMsg);
+      }
+
+      await handleBackendResult(data, language);
+      setTextInput("");
+    } catch (error) {
+      console.error("Text processing error:", error);
+      let errorMessage = "Failed to process text. Please try again.";
+
+      if (error instanceof DOMException && error.name === "AbortError") {
+        errorMessage = "Request was stopped.";
+      }
+
+      if (error instanceof Error) {
+        const message = error.message;
+        if (
+          message.includes("JSON") ||
+          message.includes("<!DOCTYPE") ||
+          message.includes("HTML")
+        ) {
+          errorMessage =
+            "Unable to connect to the backend server. Please ensure the backend is running on port 8000.";
+        } else if (
+          message.includes("Failed to reach backend") ||
+          message.includes("502")
+        ) {
+          errorMessage =
+            "Backend server is not available. Please check if the backend service is running.";
+        } else if (
+          message.includes("NetworkError") ||
+          message.includes("fetch")
+        ) {
+          errorMessage =
+            "Network error. Please check your connection and try again.";
+        } else if (
+          message.includes("empty text") ||
+          message.includes("empty audio")
+        ) {
+          errorMessage =
+            "No text was detected. Please try typing your question again.";
+        } else {
+          errorMessage = message;
+        }
+      }
+
+      setError(errorMessage);
+      setCurrentSubtitle("Something went wrong. Try again!");
+
+      const friendlyMessage =
+        errorMessage.includes("backend") || errorMessage.includes("server")
+          ? "I'm having trouble connecting to my brain right now. Please make sure the backend server is running! 🤖"
+          : `Sorry, I encountered an error: ${errorMessage}`;
+
+      setChatHistory((prev) => [
+        ...prev,
+        { actor: "ai", text: friendlyMessage },
+      ]);
+    } finally {
+      processAbortControllerRef.current = null;
+      setIsProcessing(false);
+    }
+  };
+
   const generateQuiz = async () => {
+    if (!hasExplainer) return;
     const topic = topicExplainer.title || "this topic";
     
     try {
+      stopResponseRef.current = false;
+      stopSpeechNow();
       setIsProcessing(true);
       
       // Fetch quiz questions from backend
+      const controller = new AbortController();
+      processAbortControllerRef.current = controller;
       const response = await fetch("/generate-quiz", {
         method: "POST",
         headers: {
@@ -1245,6 +1546,7 @@ const cleanQuery = (query: string): string => {
           },
           language: language,
         }),
+        signal: controller.signal,
       });
       
       if (!response.ok) {
@@ -1274,8 +1576,13 @@ const cleanQuery = (query: string): string => {
       }, 500);
     } catch (error) {
       console.error("Quiz generation error:", error);
-      setError("Failed to generate quiz. Please try again!");
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setError("Quiz request was stopped.");
+      } else {
+        setError("Failed to generate quiz. Please try again!");
+      }
     } finally {
+      processAbortControllerRef.current = null;
       setIsProcessing(false);
     }
   };
@@ -1288,6 +1595,7 @@ const cleanQuery = (query: string): string => {
     
     if (isCorrect) {
       setQuizScore(quizScore + 1);
+      stopResponseRef.current = false;
       await speakText("Correct! Great job!", language);
       setShowQuizResult(true);
       
@@ -1308,6 +1616,7 @@ const cleanQuery = (query: string): string => {
         }
       }, 2000);
     } else {
+      stopResponseRef.current = false;
       await speakText("Oops! Try again and think carefully.", language);
       setTimeout(() => {
         setSelectedAnswer(null);
@@ -1340,9 +1649,27 @@ const cleanQuery = (query: string): string => {
     };
   }, []);
 
+  const hasAiResponse = chatHistory.some((msg) => msg.actor === "ai");
+  const isPlaybackActive = isSpeechActive || isScenePlaying || isSceneActive;
+
 
   return (
-    <div className="min-h-screen w-full animate-in fade-in duration-700">
+    <div className="min-h-screen w-full animate-in fade-in duration-700 page-sky relative">
+      {/* Floating background shapes */}
+      <div className="floating-shape" style={{ width: 140, height: 140, top: "6%", left: "10%", background: "radial-gradient(circle, #FFFFFF 0%, transparent 65%)" }} />
+      <div className="floating-shape" style={{ width: 110, height: 110, top: "26%", right: "12%", background: "radial-gradient(circle, #FFF9C4 0%, transparent 65%)", animationDelay: "2s" }} />
+      <div className="floating-shape" style={{ width: 160, height: 160, bottom: "12%", left: "6%", background: "radial-gradient(circle, #E1BEE7 0%, transparent 65%)", animationDelay: "5s" }} />
+      <div className="floating-shape" style={{ width: 90, height: 90, bottom: "24%", right: "18%", background: "radial-gradient(circle, #BBDEFB 0%, transparent 65%)", animationDelay: "8s" }} />
+      {/* Stars (twinkles) */}
+      <div className="floating-shape" style={{ width: 14, height: 14, top: "14%", left: "32%", background: "radial-gradient(circle, #FFF 0%, transparent 70%)", animationDuration: "12s" }} />
+      <div className="floating-shape" style={{ width: 10, height: 10, top: "32%", right: "28%", background: "radial-gradient(circle, #FFF 0%, transparent 70%)", animationDuration: "10s", animationDelay: "1.5s" }} />
+      <div className="floating-shape" style={{ width: 12, height: 12, bottom: "28%", right: "32%", background: "radial-gradient(circle, #FFF 0%, transparent 70%)", animationDuration: "11s", animationDelay: "2.5s" }} />
+      {/* Drifting clouds */}
+      <div className="floating-cloud" style={{ top: "10%", left: "-22%", width: 280, height: 140, background: "radial-gradient(circle at 30% 40%, rgba(255,255,255,0.9), transparent 55%)" }} />
+      <div className="floating-cloud" style={{ top: "38%", left: "-28%", width: 320, height: 160, background: "radial-gradient(circle at 40% 50%, rgba(255,255,255,0.85), transparent 60%)", animationDuration: "60s" }} />
+      {/* Corner blobs */}
+      <div className="corner-blob tl" />
+      <div className="corner-blob br" />
       {/* ================= HEADER ================= */}
       <header className="fixed top-0 left-0 right-0 z-50 px-4 md:px-6 lg:px-8 py-2 border-b-2 border-[var(--border-soft)] md:border-none">
         <div className="flex items-center justify-between">
@@ -1386,6 +1713,25 @@ const cleanQuery = (query: string): string => {
                   </select>
                 </div>
                 <DropdownMenuSeparator />
+                <div className="px-2 py-1.5">
+                  <label
+                    className="block text-xs font-semibold opacity-70 mb-1"
+                    htmlFor="character-select"
+                  >
+                    Character
+                  </label>
+                  <select
+                    id="character-select"
+                    value={character}
+                    onChange={(e) => setCharacter(e.target.value as "boy" | "girl")}
+                    className="w-full bg-white px-3 py-2 rounded-md shadow-sm border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold"
+                    aria-label="Select character"
+                  >
+                    <option value="girl">Girl 👧</option>
+                    <option value="boy">Boy 👦</option>
+                  </select>
+                </div>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={() => {
                     window.location.href = "/login";
@@ -1405,7 +1751,7 @@ const cleanQuery = (query: string): string => {
         
         {/* ================= UPPER SECTION: CHAT & ANIMATION ================= */}
         <div className="bg-white/85 backdrop-blur-sm rounded-3xl shadow-xl border-2 border-[var(--border-soft)] p-4 md:p-6 animate-in slide-in-from-bottom-6 duration-700 delay-100">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[650px] lg:min-h-[75vh]">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[480px] lg:min-h-[58vh]">
           
           {/* LEFT: CHAT TRANSCRIPT */}
           <section className="lg:col-span-5 flex flex-col gap-4 h-full">
@@ -1420,82 +1766,69 @@ const cleanQuery = (query: string): string => {
               </button>
             </div>
             
-            <div className="card flex-1 flex flex-col relative border-4 border-[var(--border-soft)] max-h-[calc(100vh-220px)] min-h-[520px] overflow-hidden shadow-xl ring-4 ring-[var(--cta-voice)] ring-opacity-15">
-              <div className="flex-1 overflow-y-auto space-y-5 p-6 custom-scrollbar" style={{ scrollBehavior: 'smooth', willChange: 'scroll-position' }}>
-                {chatHistory.map((chat, i) => {
-                  // Colorful AI dialogues: mix of red, green, yellow
-                  const aiColors = [
-                    { bg: "bg-[#FFE5E5]", border: "border-[#FF8A65]", text: "text-[#D84315]" }, // Red
-                    { bg: "bg-[#E8F5E9]", border: "border-[#81C784]", text: "text-[#388E3C]" }, // Green
-                    { bg: "bg-[#FFF9E5]", border: "border-[#FFC107]", text: "text-[#F57C00]" }, // Yellow
-                  ];
-                  const colorIndex = chat.actor === "ai" ? i % 3 : 0;
-                  const aiColor = aiColors[colorIndex];
-                  const isSpeaking = speakingDialogueIndex === i;
-
-                  return (
-                    <div
-                      key={`chat-${i}-${chat.text.substring(0, 10)}`}
-                      className={`flex flex-col gap-1 ${
-                        chat.actor === "kid" ? "items-end" : "items-start"
-                      }`}
-                    >
+            <div className="card flex-none flex flex-col relative border-4 border-[var(--border-soft)] h-[calc(100vh-320px)] max-h-[calc(100vh-320px)] min-h-[360px] overflow-hidden shadow-xl ring-4 ring-[var(--cta-voice)] ring-opacity-15 bg-chat-zone">
+              {/* Floating decorative elements */}
+              <div className="floating-element floating-dots animate-float" style={{ top: '10%', left: '5%' }}></div>
+              <div className="floating-element floating-dots animate-float-slow" style={{ top: '60%', right: '8%', width: '30px', height: '30px' }}></div>
+              <div className="floating-element floating-dots animate-float" style={{ bottom: '20%', left: '10%', width: '25px', height: '25px' }}></div>
+              
+              <div className="flex-1 overflow-y-auto space-y-4 p-6 custom-scrollbar" style={{ scrollBehavior: 'smooth', willChange: 'scroll-position' }}>
+                {chatHistory.length > 0 ? (
+                  chatHistory.map((chat, idx) => {
+                    const isKid = chat.actor === "kid";
+                    return (
                       <div
-                        className={`${
-                          chat.actor === "kid"
-                            ? "bg-[var(--bg-learning)] border-2 border-[var(--cta-voice)] rounded-tr-none"
-                            : `${aiColor.bg} border-2 ${aiColor.border} ${aiColor.text} rounded-tl-none`
-                        } ${
-                          isSpeaking ? "ring-4 ring-[var(--cta-voice)] ring-opacity-50 scale-105" : ""
-                        } text-[var(--text-primary)] px-4 py-3 rounded-2xl max-w-[90%] text-lg font-bold shadow-sm transition-all duration-300`}
-                        style={{
-                          animation: `fadeIn 0.3s ease-in ${i * 0.1}s both`
-                        }}
+                        key={idx}
+                        className={`animate-slide-in-left flex ${isKid ? "justify-end" : "justify-start"}`}
                       >
-                        {chat.text}
+                        <div
+                          className={`max-w-[85%] rounded-3xl px-5 py-4 shadow-lg border-3 font-bold text-base md:text-lg leading-relaxed transform transition-all duration-300 hover:scale-105 ${
+                            isKid
+                              ? "bg-gradient-to-r from-[#FF6B6B] via-[#FF8A65] to-[#FFA500] text-white border-[#FF5722] rounded-tr-sm"
+                              : "bg-gradient-to-r from-[#4CAF50] via-[#81C784] to-[#A5D6A7] text-[#1B5E20] border-[#388E3C] rounded-tl-sm"
+                          }`}
+                        >
+                          <div className="font-black text-sm opacity-80 mb-1">
+                            {isKid ? "🎤 You" : "🤖 KidzGPT"}
+                          </div>
+                          {chat.text}
+                        </div>
                       </div>
+                    );
+                  })
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center text-[var(--text-secondary)] text-lg font-bold">
+                      💬 Chat will appear here!
                     </div>
-                  );
-                })}
+                  </div>
+                )}
 
                 {/* Live voice → text bubble (best-effort via Web Speech API). */}
                 {(isListening || (isProcessing && !!liveTranscript)) && (
-                  <div className="flex flex-col gap-1 items-end">
-                    <div
-                      className="bg-[var(--bg-learning)] border-2 border-[var(--cta-voice)] rounded-2xl rounded-tr-none text-[var(--text-primary)] px-4 py-3 max-w-[90%] text-lg font-bold shadow-sm transition-all duration-300 animate-in slide-in-from-right-4 fade-in"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="break-words">
-                          {liveTranscript
-                            ? liveTranscript
-                            : isListening
-                            ? "Listening…"
-                            : "Processing…"}
-                        </span>
-                        {isListening && (
-                          <span className="inline-flex items-center gap-1 opacity-70">
-                            <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
-                            <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
-                            <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
-                          </span>
-                        )}
-                      </div>
+                  <div className="mt-4 animate-slide-in-right flex justify-start">
+                    <div className="max-w-[85%] bg-gradient-to-r from-[#2196F3] via-[#64B5F6] to-[#90CAF9] text-white px-5 py-4 rounded-3xl rounded-tl-sm border-3 border-[#1976D2] shadow-lg font-bold text-base md:text-lg">
+                      <div className="font-black text-sm opacity-90 mb-1">🎧 Listening...</div>
+                      {liveTranscript
+                        ? liveTranscript
+                        : isProcessing
+                        ? "Processing your question..."
+                        : "Listening..."}
                     </div>
                   </div>
                 )}
 
                 {isProcessing && (
-                  <div className="flex items-start gap-2">
-                    <div className="bg-[var(--bg-secondary)] rounded-2xl rounded-tl-none px-4 py-3 text-[var(--text-primary)]">
-                      <div className="flex gap-1">
-                        <span className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
-                        <span className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
-                        <span className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
-                      </div>
+                  <div className="mt-4 animate-slide-in-left flex justify-start">
+                    <div className="max-w-[85%] bg-gradient-to-r from-[#FFD700] via-[#FFC107] to-[#FF9800] text-[#F57C00] px-5 py-4 rounded-3xl rounded-tl-sm border-3 border-[#FF6F00] shadow-lg font-black text-base md:text-lg animate-pulse flex items-center gap-2">
+                      <span className="text-2xl">✨</span>
+                      Thinking...
+                      <span className="text-2xl">💭</span>
                     </div>
                   </div>
                 )}
-                <div ref={chatEndRef} />
+                      <div ref={chatEndRef} />
+
               </div>
             </div>
 
@@ -1520,7 +1853,7 @@ const cleanQuery = (query: string): string => {
                     ? "button-voice shadow-lg ring-4 ring-[var(--cta-voice)] ring-opacity-20"
                     : isProcessing
                     ? "bg-gray-200 border-2 border-gray-400 text-gray-600 cursor-not-allowed"
-                    : "button-primary shadow-xl ring-4 ring-[var(--cta-primary)] ring-opacity-25"
+                    : "button-primary shadow-xl ring-4 ring-[var(--cta-primary)] ring-opacity-25 animate-mic-pulse"
                 } w-full flex justify-center gap-2 items-center text-xl transition-all duration-200`}
                 onClick={handleMicClick}
                 disabled={isProcessing}
@@ -1535,6 +1868,80 @@ const cleanQuery = (query: string): string => {
                   ? "Listening... Tap to Stop"
                   : "Tap to Speak"}
               </button>
+
+              <div className="flex flex-wrap gap-3 w-full">
+                <button
+                  type="button"
+                  onClick={stopResponsePlayback}
+                  disabled={!isPlaybackActive && !isProcessing}
+                  className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border-2 border-[var(--accent-coral)] bg-white text-[var(--text-primary)] font-bold shadow-sm disabled:opacity-60 disabled:cursor-not-allowed hover:shadow-md transition-all"
+                  aria-label="Stop current response"
+                >
+                  <Square size={18} />
+                  Stop response
+                </button>
+
+                <button
+                  type="button"
+                  onClick={replayLastResponse}
+                  disabled={!hasAiResponse || isProcessing || isListening}
+                  className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border-2 border-[var(--cta-primary)] bg-white text-[var(--text-primary)] font-bold shadow-sm disabled:opacity-60 disabled:cursor-not-allowed hover:shadow-md transition-all"
+                  aria-label="Replay the last response"
+                >
+                  <RotateCcw size={18} />
+                  Replay response
+                </button>
+              </div>
+
+              {/* Text input toggle & expanding box */}
+              <button
+                type="button"
+                className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-full border-2 border-[var(--border-soft)] bg-white text-sm font-bold text-[var(--text-primary)] shadow-sm hover:shadow-md transition-all"
+                onClick={() => {
+                  setIsTextMode((prev) => !prev);
+                  setTimeout(() => {
+                    if (!isTextMode && textAreaRef.current) {
+                      textAreaRef.current.focus();
+                    }
+                  }, 50);
+                }}
+              >
+                <User size={16} />
+                {isTextMode ? "Hide typing box" : "Or type your question"}
+              </button>
+
+              {isTextMode && (
+                <div className="w-full mt-2 flex flex-col gap-2">
+                  <textarea
+                    ref={textAreaRef}
+                    value={textInput}
+                    onChange={(e) => {
+                      setTextInput(e.target.value);
+                      const el = e.target as HTMLTextAreaElement;
+                      el.style.height = "auto";
+                      el.style.height = `${el.scrollHeight}px`;
+                    }}
+                    rows={2}
+                    placeholder="Or type your question here..."
+                    className="w-full rounded-2xl border-2 border-[var(--border-soft)] px-3 py-2 text-base resize-none focus:ring-2 focus:ring-[var(--cta-primary)] focus:outline-none bg-white shadow-inner max-h-40 overflow-y-auto"
+                    disabled={isProcessing}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleTextSubmit();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTextSubmit}
+                    disabled={isProcessing || !textInput.trim()}
+                    className="self-end px-4 py-2 rounded-full bg-[var(--cta-primary)] text-white text-sm font-bold shadow-md disabled:opacity-60 disabled:cursor-not-allowed hover:shadow-lg transition"
+                  >
+                    Send
+                  </button>
+                </div>
+              )}
             </div>
           </section>
 
@@ -1542,28 +1949,45 @@ const cleanQuery = (query: string): string => {
           <section className="lg:col-span-7 flex flex-col gap-4 h-full">
             
             {/* CHARACTER / ANIMATION AREA */}
-            <div className="character-container flex-1 flex flex-col items-center justify-center relative overflow-hidden min-h-[520px] lg:min-h-[560px]">
-              {/* Decorative background circles */}
-              <div className="absolute top-10 left-10 w-20 h-20 bg-white opacity-20 rounded-full blur-xl"></div>
-              <div className="absolute bottom-10 right-10 w-32 h-32 bg-[var(--bg-secondary)] opacity-30 rounded-full blur-2xl"></div>
+            <div className="character-container flex-1 flex flex-col items-center justify-center relative overflow-hidden min-h-[420px] lg:min-h-[410px] bg-animation-zone animate-glow-border rounded-3xl">
+              {/* Background Image */}
+              <div 
+                className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat rounded-3xl transition-all duration-500"
+                style={{
+                  backgroundImage: `url('/${currentBackground}')`,
+                }}
+              />
 
-              {/* Main Character (3D) */}
-              <div className="relative z-10 w-full h-full px-4 py-4">
-                <ScenePlayer
-                  scenes={scenes.length > 0 ? [scenes[currentSceneIndex]] : []}
-                  active={isSceneActive}
-                  playing={isScenePlaying}
-                />
-              </div>
+              {/* Floating decorative elements */}
+              <div className="absolute top-10 left-10 w-20 h-20 bg-white opacity-20 rounded-full blur-xl animate-float"></div>
+              <div className="absolute bottom-10 right-10 w-32 h-32 bg-[var(--bg-secondary)] opacity-30 rounded-full blur-2xl animate-float-slow"></div>
+              <div className="absolute top-1/2 left-1/4 w-16 h-16 bg-purple-300 opacity-15 rounded-full blur-lg animate-float" style={{ animationDelay: '1s' }}></div>
 
-              {/* Subtitle / caption (driven by `currentSubtitle`) */}
-              <div className="absolute bottom-4 left-4 right-4 z-20 pointer-events-none">
-                <div className="mx-auto max-w-3xl bg-white/85 backdrop-blur-sm border-2 border-[var(--border-soft)] rounded-2xl px-4 py-3 shadow-lg animate-in fade-in duration-300">
-                  <p className="text-center text-[var(--text-primary)] font-bold text-base md:text-lg">
-                    {currentSubtitle}
-                  </p>
+              {isProcessing ? (
+                <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/85 backdrop-blur-sm px-4 py-4">
+                  <div className="w-full max-w-2xl flex flex-col items-center gap-3">
+                    <video
+                      src="/preloader.mp4"
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="w-full max-h-[360px] object-cover rounded-3xl shadow-xl border-4 border-[var(--cta-primary)]"
+                    />
+                    <p className="text-lg md:text-xl font-bold text-[var(--text-primary)] text-center drop-shadow-sm">
+                      KIDZ-GPT is thinking... hang tight!
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="absolute inset-0 z-10 flex items-center justify-center px-4 py-4">
+                  <ScenePlayer
+                    scenes={scenes.length > 0 ? [scenes[currentSceneIndex]] : []}
+                    active={isSceneActive}
+                    playing={isScenePlaying}
+                  />
+                </div>
+              )}
 
               {/* Reward Badge (Floating) */}
               {/* <div className="absolute top-4 right-4 reward-badge shadow-lg animate-bounce">
@@ -1576,120 +2000,124 @@ const cleanQuery = (query: string): string => {
           </div>
         </div>
 
-        {/* ================= MIDDLE SECTION: EXPLANATION ================= */}
-        <div ref={topicExplainerRef} className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          
-          {/* IMAGE CARD */}
-          <div className="md:col-span-1 card p-2 flex items-center justify-center bg-white border-4 border-[var(--bg-secondary)] overflow-hidden">
-            <img 
-              src={topicExplainer.imageSrc} 
-              alt={topicExplainer.imageAlt} 
-              className="w-full h-full object-cover rounded-xl hover:scale-110 transition-transform duration-700"
-            />
-          </div>
-
-          {/* TEXT EXPLANATION CARD */}
-          <div className="md:col-span-2 card flex flex-col justify-center gap-4 relative overflow-hidden">
-             {/* Decor */}
-            <div className="absolute -right-10 -top-10 w-40 h-40 bg-[var(--bg-learning)] rounded-full opacity-50 pointer-events-none"></div>
-
-            <h2 className="text-2xl font-bold text-[var(--text-primary)] font-[Comic Neue]">
-              {topicExplainer.title}
-            </h2>
-
-            {topicExplainer.question ? (
-              <p className="text-base md:text-lg text-[var(--text-secondary)] font-bold">
-                Q: <span className="font-[Poppins] font-medium">{topicExplainer.question}</span>
-              </p>
-            ) : null}
-
-            <p className="text-xl leading-relaxed text-[var(--text-secondary)] font-[Poppins]">
-              {topicExplainer.answer}
-            </p>
-
-            {/* Main points (visually highlighted using existing theme tokens) */}
-            <div className="flex flex-wrap gap-2">
-              {topicExplainer.points.slice(0, 3).map((point, idx) => {
-                const dotBg =
-                  idx === 0
-                    ? "bg-[var(--cta-primary)]"
-                    : idx === 1
-                    ? "bg-[var(--accent-coral)]"
-                    : "bg-[var(--reward-gold)]";
-
-                const chipBg =
-                  idx === 0
-                    ? "bg-[var(--bg-success)]"
-                    : idx === 1
-                    ? "bg-[var(--bg-secondary)]"
-                    : "bg-[var(--bg-secondary)]";
-
-                const borderColor =
-                  idx === 0
-                    ? "border-[var(--cta-primary)]"
-                    : idx === 1
-                    ? "border-[var(--accent-coral)]"
-                    : "border-[var(--reward-gold)]";
-
-                return (
-                  <div
-                    key={`${idx}-${point.substring(0, 12)}`}
-                    className={`${chipBg} ${borderColor} border-2 rounded-xl px-3 py-2 flex items-start gap-2 shadow-sm`}
-                  >
-                    <span className={`mt-2 w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotBg}`} />
-                    <span className="text-[var(--text-primary)] font-[Poppins] font-semibold">
-                      {point}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            
-            <div className="flex gap-2 mt-2">
-               {topicExplainer.tags.slice(0, 2).map((tag) => (
-                 <span key={tag} className="bg-[var(--bg-learning)] text-[var(--cta-voice)] px-3 py-1 rounded-full text-sm font-bold">
-                   #{tag}
-                 </span>
-               ))}
-            </div>
-          </div>
-
-        </div>
-
-        {/* ================= QUIZ CHALLENGE SECTION ================= */}
-        <section className="mt-8 mb-4">
-          <div className="relative bg-gradient-to-r from-[#FF6B6B] via-[#FFA500] to-[#FFD700] rounded-3xl p-8 shadow-2xl border-4 border-white overflow-hidden">
-            {/* Decorative background elements */}
-            <div className="absolute top-0 right-0 w-40 h-40 bg-white opacity-10 rounded-full -mr-20 -mt-20"></div>
-            <div className="absolute bottom-0 left-0 w-32 h-32 bg-white opacity-10 rounded-full -ml-16 -mb-16"></div>
-            
-            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="flex-1 text-center md:text-left">
-                <div className="flex items-center justify-center md:justify-start gap-3 mb-3">
-                  <Trophy size={40} className="text-white animate-bounce" />
-                  <h3 className="text-3xl md:text-4xl font-bold text-white font-[Comic Neue]">
-                    Test Your Knowledge!
-                  </h3>
-                  <PartyPopper size={40} className="text-white animate-bounce" style={{ animationDelay: "0.2s" }} />
-                </div>
-                <p className="text-xl text-white font-[Poppins] opacity-90">
-                  Take a fun quiz and become a Super Learner! 🌟
-                </p>
-              </div>
+        {hasExplainer && (
+          <>
+            {/* ================= MIDDLE SECTION: EXPLANATION ================= */}
+            <div ref={topicExplainerRef} className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
-              <button
-                onClick={generateQuiz}
-                disabled={isProcessing}
-                className="bg-white text-[#FF6B6B] font-bold text-2xl py-5 px-10 rounded-full shadow-2xl hover:shadow-none hover:scale-110 transition-all duration-300 flex items-center gap-4 border-4 border-[#FFD700] animate-pulse disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ animationDuration: "1.5s" }}
-              >
-                <span className="text-4xl">🎯</span>
-                Start Quiz!
-                <span className="text-4xl">✨</span>
-              </button>
+              {/* IMAGE CARD */}
+              <div className="md:col-span-1 card p-2 flex items-center justify-center bg-white border-4 border-[var(--bg-secondary)] overflow-hidden">
+                <img 
+                  src={topicExplainer.imageSrc} 
+                  alt={topicExplainer.imageAlt} 
+                  className="w-full h-full object-cover rounded-xl hover:scale-110 transition-transform duration-700"
+                />
+              </div>
+
+              {/* TEXT EXPLANATION CARD */}
+              <div className="md:col-span-2 card flex flex-col justify-center gap-4 relative overflow-hidden bg-knowledge-card">
+                 {/* Decor */}
+                <div className="absolute -right-10 -top-10 w-40 h-40 bg-[var(--bg-learning)] rounded-full opacity-50 pointer-events-none animate-float-slow"></div>
+
+                <h2 className="text-2xl font-bold text-[var(--text-primary)] font-[Comic Neue]">
+                  {topicExplainer.title}
+                </h2>
+
+                {topicExplainer.question ? (
+                  <p className="text-base md:text-lg text-[var(--text-secondary)] font-bold">
+                    Q: <span className="font-[Poppins] font-medium">{topicExplainer.question}</span>
+                  </p>
+                ) : null}
+
+                <p className="text-xl leading-relaxed text-[var(--text-secondary)] font-[Poppins]">
+                  {topicExplainer.answer}
+                </p>
+
+                {/* Main points (visually highlighted using existing theme tokens) */}
+                <div className="flex flex-wrap gap-2">
+                  {topicExplainer.points.slice(0, 3).map((point, idx) => {
+                    const dotBg =
+                      idx === 0
+                        ? "bg-[var(--cta-primary)]"
+                        : idx === 1
+                        ? "bg-[var(--accent-coral)]"
+                        : "bg-[var(--reward-gold)]";
+
+                    const chipBg =
+                      idx === 0
+                        ? "bg-[var(--bg-success)]"
+                        : idx === 1
+                        ? "bg-[var(--bg-secondary)]"
+                        : "bg-[var(--bg-secondary)]";
+
+                    const borderColor =
+                      idx === 0
+                        ? "border-[var(--cta-primary)]"
+                        : idx === 1
+                        ? "border-[var(--accent-coral)]"
+                        : "border-[var(--reward-gold)]";
+
+                    return (
+                      <div
+                        key={`${idx}-${point.substring(0, 12)}`}
+                        className={`${chipBg} ${borderColor} border-2 rounded-xl px-3 py-2 flex items-start gap-2 shadow-sm`}
+                      >
+                        <span className={`mt-2 w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotBg}`} />
+                        <span className="text-[var(--text-primary)] font-[Poppins] font-semibold">
+                          {point}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <div className="flex gap-2 mt-2">
+                   {topicExplainer.tags.slice(0, 2).map((tag) => (
+                     <span key={tag} className="bg-[var(--bg-learning)] text-[var(--cta-voice)] px-3 py-1 rounded-full text-sm font-bold">
+                       #{tag}
+                     </span>
+                   ))}
+                </div>
+              </div>
+
             </div>
-          </div>
-        </section>
+
+            {/* ================= QUIZ CHALLENGE SECTION ================= */}
+            <section className="mt-8 mb-4">
+              <div className="relative bg-shimmer rounded-3xl p-8 shadow-2xl border-4 border-white overflow-hidden">
+                {/* Decorative background elements */}
+                <div className="absolute top-0 right-0 w-40 h-40 bg-white opacity-10 rounded-full -mr-20 -mt-20"></div>
+                <div className="absolute bottom-0 left-0 w-32 h-32 bg-white opacity-10 rounded-full -ml-16 -mb-16"></div>
+                
+                <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div className="flex-1 text-center md:text-left">
+                    <div className="flex items-center justify-center md:justify-start gap-3 mb-3">
+                      <Trophy size={40} className="text-white animate-bounce animate-sparkle" />
+                      <h3 className="text-3xl md:text-4xl font-bold text-white font-[Comic Neue]">
+                        Test Your Knowledge!
+                      </h3>
+                      <PartyPopper size={40} className="text-white animate-bounce" style={{ animationDelay: "0.2s" }} />
+                    </div>
+                    <p className="text-xl text-white font-[Poppins] opacity-90">
+                      Take a fun quiz and become a Super Learner! 🌟
+                    </p>
+                  </div>
+                  
+                  <button
+                    onClick={generateQuiz}
+                    disabled={isProcessing || !hasExplainer}
+                    className="bg-white text-[#FF6B6B] font-bold text-2xl py-5 px-10 rounded-full shadow-2xl hover:shadow-none hover:scale-110 transition-all duration-300 flex items-center gap-4 border-4 border-[#FFD700] animate-pulse disabled:opacity-50 disabled:cursor-not-allowed hover-wiggle"
+                    style={{ animationDuration: "1.5s" }}
+                  >
+                    <span className="text-4xl">🎯</span>
+                    Start Quiz!
+                    <span className="text-4xl">✨</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
 
         {/* ================= BOTTOM SECTION: RELATED TOPICS ================= */}
         <section className="mt-4">
@@ -1746,7 +2174,7 @@ const cleanQuery = (query: string): string => {
             ].map((item, i) => (
               <div 
                 key={i} 
-                className={`min-w-[180px] md:min-w-[220px] h-40 md:h-48 bg-gradient-to-br ${item.gradient} rounded-3xl shadow-2xl flex flex-col items-center justify-center gap-4 p-6 cursor-pointer hover:scale-110 hover:-translate-y-3 transition-all duration-300 border-4 border-white snap-start relative overflow-hidden group`}
+                className={`min-w-[180px] md:min-w-[220px] h-40 md:h-48 bg-gradient-to-br ${item.gradient} rounded-3xl shadow-2xl flex flex-col items-center justify-center gap-4 p-6 cursor-pointer transition-all duration-300 border-4 border-white snap-start relative overflow-hidden group hover-lift hover-wiggle`}
               >
                 {/* Decorative shine effect */}
                 <div className="absolute top-0 right-0 w-20 h-20 bg-white opacity-20 rounded-full blur-xl group-hover:opacity-40 transition-opacity"></div>
@@ -1817,8 +2245,8 @@ const cleanQuery = (query: string): string => {
                       const showResult = selectedAnswer !== null;
 
                       const colors = [
-                        { bg: "bg-[#E8F5E9]", border: "border-[#4CAF50]", hover: "hover:bg-[#C8E6C9]" },
-                        { bg: "bg-[#FFE5E5]", border: "border-[#FF6B6B]", hover: "hover:bg-[#FFD0D0]" },
+                        { bg: "bg-[#D3EEE4]", border: "border-[#55ECB4]", hover: "hover:bg-[#55ECB4]" },
+                        { bg: "bg-[#D8CCEB]", border: "border-[#AF8CE8]", hover: "hover:bg-[#AF8CE8]" },
                       ];
 
                       const colorScheme = colors[idx % 2];
@@ -1877,7 +2305,7 @@ const cleanQuery = (query: string): string => {
                   <span className="animate-bounce" style={{ animationDelay: "300ms" }}>🎁</span>
                 </div>
                 <p className="text-2xl text-white font-[Poppins]">
-                  You got a 🍫
+                  You got a 🍫🍬
                 </p>
               </div>
               
@@ -1894,3 +2322,10 @@ const cleanQuery = (query: string): string => {
     </div>
   );
 }
+function normalizeDialogueKey(dialogue: string): string {
+  return String(dialogue || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+

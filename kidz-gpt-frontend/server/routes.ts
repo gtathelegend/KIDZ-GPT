@@ -210,6 +210,7 @@ export async function registerRoutes(
   };
 
   app.all("/process", proxyToBackend);
+  app.all("/process-text", proxyToBackend);
   app.all("/explainer", proxyToBackend);
   app.all("/generate-quiz", proxyToBackend);
 

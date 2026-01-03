@@ -12,7 +12,7 @@ from models.schemas import QuizQuestion
 class QuizAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model = os.getenv("OLLAMA_MODEL", "gpt-oss:20b-cloud")
+        self.model = os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud")
 
     def _parse_ollama_json(self, response_content: Any) -> Dict[str, Any]:
         if isinstance(response_content, dict):

@@ -1,9 +1,14 @@
 import { Canvas } from "@react-three/fiber";
 import Boy from "./characters/Boy";
+import Girl from "./characters/Girl";
+
 import { useMemo } from "react";
+
+type CharacterId = "boy" | "girl";
 
 type Scene = {
   scene_id?: number;
+  character?: CharacterId;
   animation?: {
     action?: string;
     loop?: boolean;
@@ -35,11 +40,23 @@ export default function ScenePlayer({
 
   const action = scene.animation?.action || "neutral";
   const loop = scene.animation?.loop ?? true;
+  const character: CharacterId =
+    scene?.character === "girl" ? "girl" : scene?.character === "boy" ? "boy" : "girl"; // Default to "girl" if undefined
   const subtitle =
     scene.dialogue?.text ||
     (typeof (scene as any).dialogue === "string" ? (scene as any).dialogue : "") ||
     "";
   const shouldShowSubtitle = Boolean(playing && subtitle.trim());
+
+  console.log("ScenePlayer Debug:", {
+    character,
+    action,
+    loop,
+    active,
+    playing,
+    sceneCharacter: scene?.character,
+    animation: scene.animation
+  });
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -48,12 +65,11 @@ export default function ScenePlayer({
           <ambientLight intensity={0.6} />
           <directionalLight position={[5, 5, 5]} intensity={1} />
 
-          <Boy
-            action={action}
-            loop={loop}
-            active={active}
-            playing={playing}
-          />
+          {character === "girl" ? (
+            <Girl action={action} loop={loop} active={active} playing={playing} />
+          ) : (
+            <Boy action={action} loop={loop} active={active} playing={playing} />
+          )}
         </Canvas>
       </div>
 

@@ -19,10 +19,27 @@ export default function Boy({
   const { actions } = useAnimations(animations, scene);
   const previousAction = useRef<THREE.AnimationAction | null>(null);
 
+  // Log available animations once
   useEffect(() => {
-    const clipAction = actions?.[action];
+    if (animations && animations.length > 0) {
+      console.log("Boy animations available:", animations.map(a => a.name));
+    }
+  }, [animations]);
+
+  useEffect(() => {
+    let clipAction = actions?.[action];
+    
+    // Fallback to first available animation if requested action not found
+    if (!clipAction && actions) {
+      const availableActions = Object.keys(actions);
+      console.warn(`Animation "${action}" not found for Boy. Available:`, availableActions);
+      if (availableActions.length > 0) {
+        clipAction = actions[availableActions[0]];
+        console.log(`Using fallback animation: ${availableActions[0]}`);
+      }
+    }
+    
     if (!clipAction) {
-      console.warn(`Animation ${action} not found`);
       return;
     }
 

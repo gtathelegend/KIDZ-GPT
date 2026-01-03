@@ -52,6 +52,10 @@ export default defineConfig({
         target: "http://localhost:8000",
         changeOrigin: true,
       },
+      "/process-text": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
       "/translate": {
         target: "http://localhost:8000",
         changeOrigin: true,

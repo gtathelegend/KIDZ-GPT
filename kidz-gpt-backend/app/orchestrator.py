@@ -6,6 +6,7 @@ from services.language_service import detect_language
 from services.safety_service import is_safe
 from services.cache_service import get, set, key as cache_key
 from services.animation_script_service import build_animation_scenes
+from services.wikipedia_service import fetch_wikipedia_image
 from agents.intent_agent import extract_intent
 from agents.animation_agent import generate_animation_scenes
 from agents.script_agent import generate_storyboard_with_question
@@ -26,6 +27,8 @@ def _fallback_explainer_for_language(*, topic_title: str, language: str) -> dict
                 "इसके महत्वपूर्ण भाग या चरण हैं।",
                 "यह हमें समझने में मदद करता है।",
             ],
+            "wikipedia_keyword": topic_title,
+            "image_url": None,
         },
         "bn": {
             "title": topic_title,
@@ -35,6 +38,8 @@ def _fallback_explainer_for_language(*, topic_title: str, language: str) -> dict
                 "এর গুরুত্বপূর্ণ অংশ বা ধাপ আছে।",
                 "এটা আমাদের বুঝতে সাহায্য করে।",
             ],
+            "wikipedia_keyword": topic_title,
+            "image_url": None,
         },
         "ta": {
             "title": topic_title,
@@ -43,8 +48,8 @@ def _fallback_explainer_for_language(*, topic_title: str, language: str) -> dict
                 "இதற்கு ஒரு எளிய பொருள் உள்ளது.",
                 "இதில் முக்கியமான பகுதிகள் அல்லது படிகள் உள்ளன.",
                 "இது நமக்கு புரிந்து கொள்ள உதவுகிறது.",
-            ],
-        },
+            ],            "wikipedia_keyword": topic_title,
+            "image_url": None,        },
         "te": {
             "title": topic_title,
             "summary": "ఇక్కడ ప్రధాన ఆలోచనలు సరళమైన విధంగా ఉన్నాయి.",
@@ -52,8 +57,8 @@ def _fallback_explainer_for_language(*, topic_title: str, language: str) -> dict
                 "దీనికి ఒక సరళమైన అర్థం ఉంది.",
                 "దీనికి ముఖ్యమైన భాగాలు లేదా దశలు ఉన్నాయి.",
                 "ఇది మనకు అర్థం చేసుకోవడానికి సహాయపడుతుంది.",
-            ],
-        },
+            ],            "wikipedia_keyword": topic_title,
+            "image_url": None,        },
         "en": {
             "title": topic_title,
             "summary": "Here are the main ideas in a simple way.",
@@ -62,6 +67,8 @@ def _fallback_explainer_for_language(*, topic_title: str, language: str) -> dict
                 "It has important parts or steps.",
                 "It helps us understand how something works.",
             ],
+            "wikipedia_keyword": topic_title,
+            "image_url": None,
         },
     }
 
@@ -89,42 +96,17 @@ async def _compute_explainer_and_update_cache(*, cache_id: str, topic: str, ques
             set(question, payload)
 
 
-async def process_audio(audio_file, language: str = "en"):
+async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str | None = None, character: str = "girl"):
+    """Shared pipeline used by both audio and text entry.
 
-    stt_timeout_s = float(os.getenv("STT_TIMEOUT_SECONDS", "180"))
-    tts_timeout_s = float(os.getenv("TTS_TIMEOUT_SECONDS", "60"))
-
-    # 1️⃣ Speech to text (MUST come first)
-    try:
-        transcription_result = await asyncio.wait_for(transcribe_audio(audio_file, language), timeout=stt_timeout_s)
-        
-        # Handle tuple return (text, detected_language) or just text for backward compatibility
-        if isinstance(transcription_result, tuple):
-            text, whisper_detected_lang = transcription_result
-        else:
-            text = transcription_result
-            whisper_detected_lang = None
-        
-        # Validate transcription result
-        if not text or text.strip() == "":
-            raise ValueError("Transcription returned empty text. Please try speaking again.")
-        if text.lower() in ["error in transcription.", "error"]:
-            raise ValueError("Transcription service returned an error. Please try again.")
-            
-    except TimeoutError as e:
-        raise TimeoutError(f"STT timed out after {stt_timeout_s:.0f}s") from e
-    except Exception as e:
-        # Re-raise with more context
-        error_msg = str(e)
-        if "transcription" in error_msg.lower() or "stt" in error_msg.lower():
-            raise Exception(f"Speech-to-text failed: {error_msg}")
-        raise
+    Expects clean text + a best-effort language hint.
+    """
 
     # 2️⃣ Safety check on raw text
     if not is_safe(text):
         return {
             "error": "Unsafe content detected",
-            "message": "Please ask a different question"
+            "message": "Please ask a different question",
         }
 
     # 3️⃣ Cache check (after text exists)
@@ -146,31 +128,60 @@ async def process_audio(audio_file, language: str = "en"):
     # Priority: Whisper detected language > User specified language > Auto-detect
     original_language = language
     
+    # Define supported languages for the platform
+    supported_languages = {"en", "hi", "bn", "ta", "te"}
+    
     # Use Whisper's detected language if available (most accurate)
     if whisper_detected_lang:
         # Normalize language code (e.g., "hi" from Whisper)
-        language = whisper_detected_lang
-        print(f"🌐 Using Whisper detected language: {language} (was: {original_language})")
-    elif language in ["en", "auto", "unknown", ""]:
+        detected = str(whisper_detected_lang).strip().lower().split("-")[0]
+        if detected in supported_languages:
+            language = detected
+            print(f"✅ Using Whisper detected language: {language} (was: {original_language})")
+        else:
+            # Whisper detected unsupported language, try to detect from text
+            print(f"⚠️ Whisper detected unsupported language: {detected}, trying text analysis...")
+            detected = detect_language(text)
+            if detected and detected in supported_languages:
+                language = detected
+                print(f"✅ Language detected from text analysis: {detected}")
+            else:
+                language = "en"
+                print(f"⚠️ Could not detect supported language, defaulting to English")
+    elif language in ["en", "auto", "unknown", "", "detect"]:
         # If no Whisper detection and language is default/auto, try to detect from text
         detected = detect_language(text)
-        if detected and detected != "unknown" and detected != "en":
+        if detected and detected in supported_languages and detected != "en":
             language = detected
-            print(f"🔍 Language detected from text: {detected} (was: {original_language})")
+            print(f"✅ Language detected from text content: {detected}")
         else:
             # Keep as English if detection fails
             language = "en"
-            print(f"🌐 Using default language: English")
+            print(f"ℹ️ Using default language: English")
     else:
         # User specified a language explicitly - use it
         # Extract base language code if it's a full tag (e.g., "hi-IN" -> "hi")
-        if "-" in language:
-            language = language.split("-")[0]
-        print(f"🌐 Using user specified language: {language}")
+        base_lang = language.split("-")[0].lower()
+        if base_lang in supported_languages:
+            language = base_lang
+            print(f"✅ Using user specified language: {language}")
+        else:
+            print(f"⚠️ Requested language '{base_lang}' not supported, attempting detection...")
+            detected = detect_language(text)
+            if detected and detected in supported_languages:
+                language = detected
+                print(f"✅ Detected supported language: {detected}")
+            else:
+                language = "en"
+                print(f"ℹ️ Defaulting to English")
     
-    # Ensure language is normalized to ISO 639-1 code (e.g., "hi", "en", "bn")
-    # This ensures consistency across the pipeline
+    # Final normalization: ensure language is ISO 639-1 code (e.g., "hi", "en", "bn")
     language = language.lower().split("-")[0] if language else "en"
+    if language not in supported_languages:
+        print(f"⚠️ Final check: language '{language}' not supported, using English")
+        language = "en"
+    
+    print(f"🌐 Final language for pipeline: {language}")
 
     # 5️⃣ Intent extraction
     intent = await extract_intent(text, language)
@@ -182,9 +193,40 @@ async def process_audio(audio_file, language: str = "en"):
     # The storyboard + explainer should be generated directly in the user's spoken language
     # (as detected by Whisper) to avoid translation-model drift.
 
-    # 6.8️⃣ Defer explainer generation so storyboard+animation can be presented immediately.
-    # We'll compute explainer asynchronously and let the client poll via job_id.
+    # 6.8️⃣ Generate explainer synchronously so it's included in the initial response.
+    # This ensures the explanation (title, summary, points) is always available immediately.
     explainer = None
+    explainer_status = "pending"
+    explainer_error = None
+    try:
+        topic = (intent or {}).get("topic") or ""
+        explainer = await generate_explainer(topic=topic, question=text, language=language)
+        explainer_status = "ready"
+        
+        # Fetch Wikipedia image using the keyword from the explainer
+        wikipedia_keyword = explainer.get("wikipedia_keyword") or topic or ""
+        if wikipedia_keyword:
+            print(f"🖼️ Fetching Wikipedia image for: {wikipedia_keyword}")
+            try:
+                image_url = await fetch_wikipedia_image(wikipedia_keyword)
+                if image_url:
+                    explainer["image_url"] = image_url
+                    print(f"✅ Added Wikipedia image to explainer: {image_url}")
+                else:
+                    explainer["image_url"] = None
+                    print(f"⚠️ No Wikipedia image found for: {wikipedia_keyword}")
+            except Exception as img_err:
+                print(f"⚠️ Wikipedia image fetch failed: {img_err}")
+                explainer["image_url"] = None
+        
+        print(f"✅ Explainer generated immediately for topic: {topic}")
+    except Exception as e:
+        print(f"⚠️ Explainer generation failed: {e}")
+        topic_title = (intent or {}).get("topic") or "Explanation"
+        explainer = _fallback_explainer_for_language(topic_title=topic_title, language=language)
+        explainer_status = "fallback"
+        explainer_error = str(e)
+        explainer["image_url"] = None
 
     # 7️⃣ Safety check on generated dialogue and validate dialogue exists
     for scene in storyboard["scenes"]:
@@ -213,6 +255,8 @@ async def process_audio(audio_file, language: str = "en"):
     animation_scenes = []
     try:
         topic = (intent or {}).get("topic") or ""
+        # Set character preference via environment variable for this request
+        os.environ["KIDZ_CHARACTER"] = character
         # Prefer LLM-directed animation plan using the predefined actions.
         animation_scenes = await generate_animation_scenes(
             topic=topic,
@@ -239,9 +283,9 @@ async def process_audio(audio_file, language: str = "en"):
         "language": language,
         "original_text": text,
         "intent": intent,
-        "explainer": None,
-        "explainer_status": "pending",
-        "explainer_error": None,
+        "explainer": explainer,
+        "explainer_status": explainer_status,
+        "explainer_error": explainer_error,
         "scenes": storyboard["scenes"],
         "animation_scenes": animation_scenes,
     }
@@ -249,18 +293,42 @@ async def process_audio(audio_file, language: str = "en"):
     # 9️⃣ Cache result
     set(text, result)
 
-    # 10️⃣ Start explainer generation in background (do not block animation).
-    try:
-        topic = (intent or {}).get("topic") or ""
-        asyncio.create_task(
-            _compute_explainer_and_update_cache(
-                cache_id=cache_id,
-                topic=topic,
-                question=text,
-                language=language,
-            )
-        )
-    except Exception as e:
-        print(f"⚠️ Failed to schedule deferred explainer task: {e}")
-
     return result
+
+
+async def process_audio(audio_file, language: str = "en", character: str = "girl"):
+
+    stt_timeout_s = float(os.getenv("STT_TIMEOUT_SECONDS", "180"))
+
+    # 1️⃣ Speech to text (MUST come first)
+    try:
+        transcription_result = await asyncio.wait_for(transcribe_audio(audio_file, language), timeout=stt_timeout_s)
+
+        # Handle tuple return (text, detected_language) or just text for backward compatibility
+        if isinstance(transcription_result, tuple):
+            text, whisper_detected_lang = transcription_result
+        else:
+            text = transcription_result
+            whisper_detected_lang = None
+
+        # Validate transcription result
+        if not text or text.strip() == "":
+            raise ValueError("Transcription returned empty text. Please try speaking again.")
+        if text.lower() in ["error in transcription.", "error"]:
+            raise ValueError("Transcription service returned an error. Please try again.")
+
+    except TimeoutError as e:
+        raise TimeoutError(f"STT timed out after {stt_timeout_s:.0f}s") from e
+    except Exception as e:
+        # Re-raise with more context
+        error_msg = str(e)
+        if "transcription" in error_msg.lower() or "stt" in error_msg.lower():
+            raise Exception(f"Speech-to-text failed: {error_msg}")
+        raise
+
+    return await _run_pipeline(text=text, language=language, whisper_detected_lang=whisper_detected_lang, character=character)
+
+
+async def process_text_query(text: str, language: str = "en", character: str = "girl"):
+    """Process a plain text question (no audio)."""
+    return await _run_pipeline(text=text, language=language, whisper_detected_lang=None, character=character)
