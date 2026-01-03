@@ -107,6 +107,7 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentSubtitle, setCurrentSubtitle] = useState<string>("Welcome! Tap the microphone to start learning! 🎤");
+  const [liveTranscript, setLiveTranscript] = useState<string>("");
   // "auto" lets the backend (Whisper) detect language from input.
   const [language, setLanguage] = useState("auto");
   const [speakingDialogueIndex, setSpeakingDialogueIndex] = useState<number | null>(null);
@@ -131,6 +132,9 @@ export default function Home() {
   const streamRef = useRef<MediaStream | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const topicExplainerRef = useRef<HTMLDivElement>(null);
+  const speechRecognitionRef = useRef<any>(null);
+  const isListeningRef = useRef<boolean>(false);
+  const liveTranscriptRef = useRef<string>("");
 
   const [topicExplainer, setTopicExplainer] = useState<TopicExplainer>({
     title: "What is a Solar System?",
@@ -170,6 +174,25 @@ export default function Home() {
   useEffect(() => {
     chatLenRef.current = chatHistory.length;
   }, [chatHistory.length]);
+
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
+
+  useEffect(() => {
+    liveTranscriptRef.current = liveTranscript;
+  }, [liveTranscript]);
+
+  useEffect(() => {
+    // Keep the transcript visible at the bottom while it's updating.
+    if (!chatEndRef.current) return;
+    if (!isListening && !isProcessing) return;
+    if (!liveTranscript) return;
+    const id = setTimeout(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
+    return () => clearTimeout(id);
+  }, [liveTranscript, isListening, isProcessing]);
   const [scenes, setScenes] = useState<Scene[]>(sceneData.scenes);
   const [isSceneActive, setIsSceneActive] = useState(false);
   const [isScenePlaying, setIsScenePlaying] = useState(false);
@@ -201,6 +224,91 @@ export default function Home() {
     if (normalized.includes("-")) return normalized;
 
     return `${normalized}-IN`;
+  };
+
+  const toSpeechRecognitionLangTag = (lang: string): string => {
+    const normalized = String(lang || "").trim();
+    if (!normalized || normalized.toLowerCase() === "auto") return "en-IN";
+    return toSpeechLangTag(normalized);
+  };
+
+  const startLiveTranscription = (): boolean => {
+    if (typeof window === "undefined") return false;
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) return false;
+
+    try {
+      // Stop any previous recognizer.
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.onresult = null;
+          speechRecognitionRef.current.onend = null;
+          speechRecognitionRef.current.onerror = null;
+          speechRecognitionRef.current.stop();
+        } catch {
+          // ignore
+        }
+        speechRecognitionRef.current = null;
+      }
+
+      const recognizer = new SpeechRecognitionCtor();
+      recognizer.continuous = true;
+      recognizer.interimResults = true;
+      recognizer.lang = toSpeechRecognitionLangTag(language);
+
+      recognizer.onresult = (event: any) => {
+        // Rebuild the full transcript each time for stability.
+        try {
+          const results = event?.results;
+          if (!results || typeof results.length !== "number") return;
+          let full = "";
+          for (let i = 0; i < results.length; i++) {
+            const t = results[i]?.[0]?.transcript;
+            if (typeof t === "string") full += t;
+          }
+          const next = full.trim();
+          if (next) setLiveTranscript(next);
+        } catch {
+          // ignore
+        }
+      };
+
+      // Some browsers auto-stop on pauses; restart while still listening.
+      recognizer.onend = () => {
+        if (!isListeningRef.current) return;
+        try {
+          recognizer.start();
+        } catch {
+          // ignore
+        }
+      };
+
+      recognizer.onerror = () => {
+        // Non-fatal: backend Whisper remains source-of-truth.
+      };
+
+      speechRecognitionRef.current = recognizer;
+      recognizer.start();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const stopLiveTranscription = () => {
+    const recognizer = speechRecognitionRef.current;
+    if (!recognizer) return;
+    try {
+      recognizer.onresult = null;
+      recognizer.onend = null;
+      recognizer.onerror = null;
+      recognizer.stop();
+    } catch {
+      // ignore
+    } finally {
+      speechRecognitionRef.current = null;
+    }
   };
 
   const scoreVoice = (voice: SpeechSynthesisVoice, langTag: string, preferFemale: boolean = true) => {
@@ -780,6 +888,8 @@ const cleanQuery = (query: string): string => {
 
   const handleMicClick = async () => {
     if (isListening) {
+      isListeningRef.current = false;
+      stopLiveTranscription();
       mediaRecorder?.stop();
       setIsListening(false);
       setIsProcessing(true);
@@ -791,6 +901,10 @@ const cleanQuery = (query: string): string => {
         if (typeof window !== "undefined" && "speechSynthesis" in window) {
           window.speechSynthesis.cancel();
         }
+
+        // Clear previous transcript and start live transcription (best-effort).
+        setLiveTranscript("");
+
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
         });
@@ -945,6 +1059,9 @@ const cleanQuery = (query: string): string => {
               await new Promise((resolve) => setTimeout(resolve, 100));
             }
 
+            // Clear any live transcript once the backend transcription arrives.
+            setLiveTranscript("");
+
             // Start explainer processing/polling immediately (while animation plays)
             const rawTopic = data?.intent?.topic || data?.topic || "";
             const initialBackendExplainer: BackendExplainer | null =
@@ -1093,8 +1210,12 @@ const cleanQuery = (query: string): string => {
         
         setMediaRecorder(recorder);
         recorder.start();
+        isListeningRef.current = true;
         setIsListening(true);
         setCurrentSubtitle("Listening... Speak now!");
+
+        // Start browser live transcription if supported (optional UX improvement).
+        startLiveTranscription();
       } catch (error) {
         console.error("Microphone access error:", error);
         setError("Could not access microphone. Please check permissions.");
@@ -1208,6 +1329,13 @@ const cleanQuery = (query: string): string => {
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+
+      // Cleanup any in-progress browser recognition.
+      try {
+        stopLiveTranscription();
+      } catch {
+        // ignore
       }
     };
   }, []);
@@ -1329,6 +1457,33 @@ const cleanQuery = (query: string): string => {
                     </div>
                   );
                 })}
+
+                {/* Live voice → text bubble (best-effort via Web Speech API). */}
+                {(isListening || (isProcessing && !!liveTranscript)) && (
+                  <div className="flex flex-col gap-1 items-end">
+                    <div
+                      className="bg-[var(--bg-learning)] border-2 border-[var(--cta-voice)] rounded-2xl rounded-tr-none text-[var(--text-primary)] px-4 py-3 max-w-[90%] text-lg font-bold shadow-sm transition-all duration-300 animate-in slide-in-from-right-4 fade-in"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="break-words">
+                          {liveTranscript
+                            ? liveTranscript
+                            : isListening
+                            ? "Listening…"
+                            : "Processing…"}
+                        </span>
+                        {isListening && (
+                          <span className="inline-flex items-center gap-1 opacity-70">
+                            <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                            <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                            <span className="w-1.5 h-1.5 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {isProcessing && (
                   <div className="flex items-start gap-2">
                     <div className="bg-[var(--bg-secondary)] rounded-2xl rounded-tl-none px-4 py-3 text-[var(--text-primary)]">
@@ -1399,6 +1554,15 @@ const cleanQuery = (query: string): string => {
                   active={isSceneActive}
                   playing={isScenePlaying}
                 />
+              </div>
+
+              {/* Subtitle / caption (driven by `currentSubtitle`) */}
+              <div className="absolute bottom-4 left-4 right-4 z-20 pointer-events-none">
+                <div className="mx-auto max-w-3xl bg-white/85 backdrop-blur-sm border-2 border-[var(--border-soft)] rounded-2xl px-4 py-3 shadow-lg animate-in fade-in duration-300">
+                  <p className="text-center text-[var(--text-primary)] font-bold text-base md:text-lg">
+                    {currentSubtitle}
+                  </p>
+                </div>
               </div>
 
               {/* Reward Badge (Floating) */}
@@ -1555,7 +1719,7 @@ const cleanQuery = (query: string): string => {
                     } else {
                       el.scrollBy({ left: 240, behavior: 'smooth' });
                     }
-                  }, 3000);
+                  }, 1000);
                   el.addEventListener('mouseenter', () => clearInterval(newInterval), { once: true });
                 });
               }
@@ -1713,7 +1877,7 @@ const cleanQuery = (query: string): string => {
                   <span className="animate-bounce" style={{ animationDelay: "300ms" }}>🎁</span>
                 </div>
                 <p className="text-2xl text-white font-[Poppins]">
-                  You earned a Super Learner Badge! 🏅
+                  You got a 🍫
                 </p>
               </div>
               
