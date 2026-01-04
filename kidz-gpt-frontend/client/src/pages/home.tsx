@@ -14,6 +14,7 @@ import {
   Trophy,
   PartyPopper,
 } from "lucide-react";
+import { useLocation } from "wouter";
 import logoImg from "@assets/kidz-gpt_1767288550163.jpeg";
 import robotImage from "@assets/generated_images/cute_3d_robot_character.png";
 import solarSystemImage from "@assets/generated_images/cartoon_solar_system_illustration.png";
@@ -82,6 +83,334 @@ type Scene = {
   duration?: number;
 };
 
+type UILangCode =
+  | "en"
+  | "hi"
+  | "bn"
+  | "ta"
+  | "te"
+  | "mr"
+  | "gu"
+  | "kn"
+  | "ml"
+  | "pa"
+  | "or"
+  | "as"
+  | "ur"
+  | "kok"
+  | "sa"
+  | "ks";
+
+const UI_LANGUAGE_LABELS: Record<UILangCode, string> = {
+  en: "English",
+  hi: "हिन्दी",
+  bn: "বাংলা",
+  ta: "தமிழ்",
+  te: "తెలుగు",
+  mr: "मराठी",
+  gu: "ગુજરાતી",
+  kn: "ಕನ್ನಡ",
+  ml: "മലയാളം",
+  pa: "ਪੰਜਾਬੀ",
+  or: "ଓଡ଼ିଆ",
+  as: "অসমীয়া",
+  ur: "اردو",
+  kok: "कोंकणी",
+  sa: "संस्कृत",
+  ks: "کٲشُر",
+};
+
+const UI_STRINGS: Record<UILangCode, Record<string, string>> = {
+  en: {
+    settings: "Settings",
+    uiLanguage: "UI Language",
+    character: "Character",
+    login: "Login",
+    backToHome: "Back to Home",
+    welcomeSubtitle: "Welcome! Tap the microphone to start learning! 🎤",
+    processingQuestion: "Processing your question...",
+    sendingToKidzGPT: "Sending to KIDZ-GPT...",
+    readyNext: "Ready for your next question!",
+    oopsDifferent: "Oops! Please try a different question.",
+    chatEmpty: "💬 Chat will appear here!",
+    youLabel: "🎤 You",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "Ready to listen!",
+    somethingWrong: "Something went wrong. Try again!",
+    noAudio: "No audio recorded. Please try again.",
+  },
+  hi: {
+    settings: "सेटिंग्स",
+    uiLanguage: "ऐप की भाषा",
+    character: "किरदार",
+    login: "लॉगिन",
+    backToHome: "होम पर वापस",
+    welcomeSubtitle: "स्वागत है! सीखना शुरू करने के लिए माइक्रोफोन दबाएँ! 🎤",
+    processingQuestion: "आपका सवाल प्रोसेस हो रहा है...",
+    sendingToKidzGPT: "KIDZ-GPT को भेज रहे हैं...",
+    readyNext: "अगले सवाल के लिए तैयार!",
+    oopsDifferent: "ओह! कृपया कोई दूसरा सवाल पूछें।",
+    chatEmpty: "💬 चैट यहाँ दिखेगी!",
+    youLabel: "🎤 आप",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "सुनने के लिए तैयार!",
+    somethingWrong: "कुछ गलत हो गया। फिर से कोशिश करें!",
+    noAudio: "कोई ऑडियो रिकॉर्ड नहीं हुआ। फिर से कोशिश करें।",
+  },
+  bn: {
+    settings: "সেটিংস",
+    uiLanguage: "অ্যাপের ভাষা",
+    character: "চরিত্র",
+    login: "লগইন",
+    backToHome: "হোমে ফিরে যান",
+    welcomeSubtitle: "স্বাগতম! শেখা শুরু করতে মাইক্রোফোন ট্যাপ করুন! 🎤",
+    processingQuestion: "আপনার প্রশ্ন প্রসেস করা হচ্ছে...",
+    sendingToKidzGPT: "KIDZ-GPT-এ পাঠানো হচ্ছে...",
+    readyNext: "পরের প্রশ্নের জন্য প্রস্তুত!",
+    oopsDifferent: "উফ! দয়া করে অন্য প্রশ্ন করুন।",
+    chatEmpty: "💬 চ্যাট এখানে দেখাবে!",
+    youLabel: "🎤 আপনি",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "শোনার জন্য প্রস্তুত!",
+    somethingWrong: "কিছু ভুল হয়েছে। আবার চেষ্টা করুন!",
+    noAudio: "কোনও অডিও রেকর্ড হয়নি। আবার চেষ্টা করুন।",
+  },
+  ta: {
+    settings: "அமைப்புகள்",
+    uiLanguage: "செயலி மொழி",
+    character: "பாத்திரம்",
+    login: "உள்நுழை",
+    backToHome: "முகப்புக்கு திரும்ப",
+    welcomeSubtitle: "வரவேற்கிறோம்! கற்றலைத் தொடங்க மைக்ரோஃபோனைத் தட்டுங்கள்! 🎤",
+    processingQuestion: "உங்கள் கேள்வி செயலாக்கப்படுகிறது...",
+    sendingToKidzGPT: "KIDZ-GPT-க்கு அனுப்பப்படுகிறது...",
+    readyNext: "அடுத்த கேள்விக்குத் தயாராக!",
+    oopsDifferent: "அய்யோ! வேறு கேள்வியை முயற்சிக்கவும்.",
+    chatEmpty: "💬 அரட்டை இங்கே தோன்றும்!",
+    youLabel: "🎤 நீங்கள்",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "கேட்கத் தயாராக!",
+    somethingWrong: "ஏதோ தவறு. மீண்டும் முயற்சிக்கவும்!",
+    noAudio: "ஆடியோ பதிவு செய்யப்படவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  },
+  te: {
+    settings: "సెట్టింగ్స్",
+    uiLanguage: "యాప్ భాష",
+    character: "పాత్ర",
+    login: "లాగిన్",
+    backToHome: "హోమ్‌కు తిరుగు",
+    welcomeSubtitle: "స్వాగతం! నేర్చుకోవడానికి మైక్ నొక్కండి! 🎤",
+    processingQuestion: "మీ ప్రశ్నను ప్రాసెస్ చేస్తున్నాం...",
+    sendingToKidzGPT: "KIDZ-GPT‌కు పంపుతున్నాం...",
+    readyNext: "తదుపరి ప్రశ్నకు సిద్ధం!",
+    oopsDifferent: "అయ్యో! దయచేసి మరో ప్రశ్న అడగండి.",
+    chatEmpty: "💬 చాట్ ఇక్కడ కనిపిస్తుంది!",
+    youLabel: "🎤 మీరు",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "వినేందుకు సిద్ధం!",
+    somethingWrong: "ఏదో తప్పు జరిగింది. మళ్లీ ప్రయత్నించండి!",
+    noAudio: "ఆడియో రికార్డు కాలేదు. మళ్లీ ప్రయత్నించండి.",
+  },
+  mr: {
+    settings: "सेटिंग्स",
+    uiLanguage: "अॅपची भाषा",
+    character: "पात्र",
+    login: "लॉगिन",
+    backToHome: "होमला परत",
+    welcomeSubtitle: "स्वागत आहे! शिकायला सुरू करण्यासाठी माईक टॅप करा! 🎤",
+    processingQuestion: "तुमचा प्रश्न प्रक्रिया होत आहे...",
+    sendingToKidzGPT: "KIDZ-GPT ला पाठवत आहोत...",
+    readyNext: "पुढच्या प्रश्नासाठी तयार!",
+    oopsDifferent: "अरे! कृपया दुसरा प्रश्न विचारा.",
+    chatEmpty: "💬 चॅट इथे दिसेल!",
+    youLabel: "🎤 तुम्ही",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "ऐकण्यासाठी तयार!",
+    somethingWrong: "काहीतरी चूक झाली. पुन्हा प्रयत्न करा!",
+    noAudio: "ऑडिओ रेकॉर्ड झाला नाही. पुन्हा प्रयत्न करा.",
+  },
+  gu: {
+    settings: "સેટિંગ્સ",
+    uiLanguage: "એપની ભાષા",
+    character: "પાત્ર",
+    login: "લૉગિન",
+    backToHome: "હોમ પર પાછા",
+    welcomeSubtitle: "સ્વાગત છે! શીખવાનું શરૂ કરવા માઇક્રોફોન ટૅપ કરો! 🎤",
+    processingQuestion: "તમારો પ્રશ્ન પ્રોસેસ થઈ રહ્યો છે...",
+    sendingToKidzGPT: "KIDZ-GPT ને મોકલી રહ્યા છીએ...",
+    readyNext: "આગળના પ્રશ્ન માટે તૈયાર!",
+    oopsDifferent: "અરે! કૃપા કરીને બીજો પ્રશ્ન કરો.",
+    chatEmpty: "💬 ચેટ અહીં દેખાશે!",
+    youLabel: "🎤 તમે",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "સાંભળવા માટે તૈયાર!",
+    somethingWrong: "કંઈક ખોટું થયું. ફરી પ્રયાસ કરો!",
+    noAudio: "કોઈ ઓડિયો રેકોર્ડ થયો નથી. ફરી પ્રયાસ કરો.",
+  },
+  kn: {
+    settings: "ಸೆಟ್ಟಿಂಗ್‌ಗಳು",
+    uiLanguage: "ಅಪ್ ಭಾಷೆ",
+    character: "ಪಾತ್ರ",
+    login: "ಲಾಗಿನ್",
+    backToHome: "ಮುಖಪುಟಕ್ಕೆ ಮರಳಿ",
+    welcomeSubtitle: "ಸ್ವಾಗತ! ಕಲಿಸಲು ಮೈಕ್‌ ಅನ್ನು ಟ್ಯಾಪ್ ಮಾಡಿ! 🎤",
+    processingQuestion: "ನಿಮ್ಮ ಪ್ರಶ್ನೆಯನ್ನು ಪ್ರಕ್ರಿಯೆಗೊಳಿಸಲಾಗುತ್ತಿದೆ...",
+    sendingToKidzGPT: "KIDZ-GPT ಗೆ ಕಳುಹಿಸಲಾಗುತ್ತಿದೆ...",
+    readyNext: "ಮುಂದಿನ ಪ್ರಶ್ನೆಗೆ ಸಿದ್ಧ!",
+    oopsDifferent: "ಅಯ್ಯೋ! ದಯವಿಟ್ಟು ಬೇರೆ ಪ್ರಶ್ನೆ ಕೇಳಿ.",
+    chatEmpty: "💬 ಚಾಟ್ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತದೆ!",
+    youLabel: "🎤 ನೀವು",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "ಕೇಳಲು ಸಿದ್ಧ!",
+    somethingWrong: "ಏನೋ ತಪ್ಪಾಗಿದೆ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ!",
+    noAudio: "ಯಾವುದೇ ಆಡಿಯೋ ದಾಖಲಾಗಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
+  },
+  ml: {
+    settings: "സെറ്റിംഗ്സ്",
+    uiLanguage: "ആപ്പ് ഭാഷ",
+    character: "കഥാപാത്രം",
+    login: "ലോഗിൻ",
+    backToHome: "ഹോമിലേക്ക് മടങ്ങുക",
+    welcomeSubtitle: "സ്വാഗതം! പഠനം ആരംഭിക്കാൻ മൈക്ക് ടാപ്പ് ചെയ്യൂ! 🎤",
+    processingQuestion: "നിങ്ങളുടെ ചോദ്യം പ്രോസസ് ചെയ്യുന്നു...",
+    sendingToKidzGPT: "KIDZ-GPT-ലേക്ക് അയക്കുന്നു...",
+    readyNext: "അടുത്ത ചോദ്യത്തിന് തയ്യാറാണ്!",
+    oopsDifferent: "അയ്യോ! മറ്റൊരു ചോദ്യം ശ്രമിക്കൂ.",
+    chatEmpty: "💬 ചാറ്റ് ഇവിടെ കാണിക്കും!",
+    youLabel: "🎤 നിങ്ങൾ",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "കേൾക്കാൻ തയ്യാറാണ്!",
+    somethingWrong: "എന്തോ പിഴവുണ്ട്. വീണ്ടും ശ്രമിക്കുക!",
+    noAudio: "ഓഡിയോ റെക്കോർഡ് ചെയ്തില്ല. വീണ്ടും ശ്രമിക്കുക.",
+  },
+  pa: {
+    settings: "ਸੈਟਿੰਗਜ਼",
+    uiLanguage: "ਐਪ ਦੀ ਭਾਸ਼ਾ",
+    character: "ਕਿਰਦਾਰ",
+    login: "ਲਾਗਇਨ",
+    backToHome: "ਹੋਮ ਵਾਪਸ",
+    welcomeSubtitle: "ਜੀ ਆਇਆਂ ਨੂੰ! ਸਿੱਖਣਾ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਮਾਈਕ ਟੈਪ ਕਰੋ! 🎤",
+    processingQuestion: "ਤੁਹਾਡਾ ਸਵਾਲ ਪ੍ਰੋਸੈਸ ਹੋ ਰਿਹਾ ਹੈ...",
+    sendingToKidzGPT: "KIDZ-GPT ਨੂੰ ਭੇਜਿਆ ਜਾ ਰਿਹਾ ਹੈ...",
+    readyNext: "ਅਗਲੇ ਸਵਾਲ ਲਈ ਤਿਆਰ!",
+    oopsDifferent: "ਓਹੋ! ਕਿਰਪਾ ਕਰਕੇ ਹੋਰ ਸਵਾਲ ਪੁੱਛੋ।",
+    chatEmpty: "💬 ਚੈਟ ਇੱਥੇ ਦਿਖੇਗੀ!",
+    youLabel: "🎤 ਤੁਸੀਂ",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "ਸੁਣਨ ਲਈ ਤਿਆਰ!",
+    somethingWrong: "ਕੁਝ ਗਲਤ ਹੋ ਗਿਆ। ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ!",
+    noAudio: "ਕੋਈ ਆਡੀਓ ਰਿਕਾਰਡ ਨਹੀਂ ਹੋਈ। ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+  },
+  or: {
+    settings: "ସେଟିଂସ୍",
+    uiLanguage: "ଆପ୍ ଭାଷା",
+    character: "ଚରିତ୍ର",
+    login: "ଲଗଇନ୍",
+    backToHome: "ହୋମକୁ ଫେରନ୍ତୁ",
+    welcomeSubtitle: "ସ୍ବାଗତ! ଶିଖିବାକୁ ଆରମ୍ଭ କରିବା ପାଇଁ ମାଇକ୍ ଟ୍ୟାପ୍ କରନ୍ତୁ! 🎤",
+    processingQuestion: "ଆପଣଙ୍କ ପ୍ରଶ୍ନ ପ୍ରୋସେସ୍ ହେଉଛି...",
+    sendingToKidzGPT: "KIDZ-GPT କୁ ପଠାଯାଉଛି...",
+    readyNext: "ପରବର୍ତ୍ତୀ ପ୍ରଶ୍ନ ପାଇଁ ପ୍ରସ୍ତୁତ!",
+    oopsDifferent: "ଓହ୍! ଦୟାକରି ଅନ୍ୟ ପ୍ରଶ୍ନ ପଚାରନ୍ତୁ।",
+    chatEmpty: "💬 ଚାଟ୍ ଏଠାରେ ଦେଖାଯିବ!",
+    youLabel: "🎤 ଆପଣ",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "ଶୁଣିବାକୁ ପ୍ରସ୍ତୁତ!",
+    somethingWrong: "କିଛି ଭୁଲ ହେଲା। ପୁଣି ଚେଷ୍ଟା କରନ୍ତୁ!",
+    noAudio: "କୌଣସି ଅଡିଓ ରେକର୍ଡ ହୋଇନାହିଁ। ପୁଣି ଚେଷ୍ଟା କରନ୍ତୁ।",
+  },
+  as: {
+    settings: "ছেটিংছ",
+    uiLanguage: "এপৰ ভাষা",
+    character: "চৰিত্ৰ",
+    login: "লগইন",
+    backToHome: "হোমলৈ ঘূৰি যাওক",
+    welcomeSubtitle: "স্বাগতম! শিকিবলৈ মাইকৰফোন টেপ কৰক! 🎤",
+    processingQuestion: "আপোনাৰ প্ৰশ্ন প্ৰচেছ কৰা হৈছে...",
+    sendingToKidzGPT: "KIDZ-GPT লৈ পঠাই আছে...",
+    readyNext: "পৰৱৰ্তী প্ৰশ্নৰ বাবে সাজু!",
+    oopsDifferent: "অʼ! অনুগ্ৰহ কৰি অন্য প্ৰশ্ন সোধক।",
+    chatEmpty: "💬 চেট ইয়াত দেখা যাব!",
+    youLabel: "🎤 আপুনি",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "শুনিবলৈ সাজু!",
+    somethingWrong: "কিবা ভুল হ'ল। আকৌ চেষ্টা কৰক!",
+    noAudio: "কোনো অডিঅ’ ৰেকৰ্ড হোৱা নাই। আকৌ চেষ্টা কৰক।",
+  },
+  ur: {
+    settings: "سیٹنگز",
+    uiLanguage: "ایپ کی زبان",
+    character: "کردار",
+    login: "لاگ اِن",
+    backToHome: "ہوم پر واپس",
+    welcomeSubtitle: "خوش آمدید! سیکھنا شروع کرنے کے لیے مائیکروفون دبائیں! 🎤",
+    processingQuestion: "آپ کا سوال پروسیس ہو رہا ہے...",
+    sendingToKidzGPT: "KIDZ-GPT کو بھیجا جا رہا ہے...",
+    readyNext: "اگلے سوال کے لیے تیار!",
+    oopsDifferent: "اوہ! براہِ کرم کوئی دوسرا سوال کریں۔",
+    chatEmpty: "💬 چیٹ یہاں دکھے گی!",
+    youLabel: "🎤 آپ",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "سننے کے لیے تیار!",
+    somethingWrong: "کچھ غلط ہو گیا۔ دوبارہ کوشش کریں!",
+    noAudio: "کوئی آڈیو ریکارڈ نہیں ہوئی۔ دوبارہ کوشش کریں۔",
+  },
+  kok: {
+    settings: "सेटिंग्स",
+    uiLanguage: "ॲप भाशा",
+    character: "पात्र",
+    login: "लॉगिन",
+    backToHome: "होमाक परत",
+    welcomeSubtitle: "स्वागत! शिकपाक सुरू करपाक मायक टॅप करात! 🎤",
+    processingQuestion: "तुमचो प्रश्न प्रोसेस जातलो...",
+    sendingToKidzGPT: "KIDZ-GPT कडे धाडता...",
+    readyNext: "फुडल्या प्रश्नाक तयार!",
+    oopsDifferent: "अरे! दुसरो प्रश्न विचारात.",
+    chatEmpty: "💬 चॅट हांगा दिसतली!",
+    youLabel: "🎤 तुमी",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "आयकपाक तयार!",
+    somethingWrong: "काय तरी चूक जाली. परत प्रयत्न करात!",
+    noAudio: "ऑडिओ रेकॉर्ड जाला ना. परत प्रयत्न करात.",
+  },
+  sa: {
+    settings: "विन्यासाः",
+    uiLanguage: "अनुप्रयोगस्य भाषा",
+    character: "पात्रम्",
+    login: "प्रवेशः",
+    backToHome: "गृहं प्रति",
+    welcomeSubtitle: "स्वागतम्! अध्ययनम् आरभ्यताम् — माइक्रोफोनं स्पृशत! 🎤",
+    processingQuestion: "भवतः प्रश्नः प्रक्रियते...",
+    sendingToKidzGPT: "KIDZ-GPT प्रति प्रेष्यते...",
+    readyNext: "अग्रिमप्रश्नाय सिद्धम्!",
+    oopsDifferent: "ओह्! कृपया अन्यः प्रश्नः पृच्छ्यताम्।",
+    chatEmpty: "💬 वार्तालापः अत्र दृश्यते!",
+    youLabel: "🎤 भवन्तः",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "श्रवणाय सिद्धम्!",
+    somethingWrong: "किञ्चित् त्रुटिः। पुनः प्रयत्नं कुरुत!",
+    noAudio: "श्रव्यं न अभिलेखितम्। पुनः प्रयत्नं कुरुत।",
+  },
+  ks: {
+    settings: "سیٹِنگس",
+    uiLanguage: "ایپ زَبان",
+    character: "کردار",
+    login: "لاگ اِن",
+    backToHome: "ہوم واپس",
+    welcomeSubtitle: "خوش آمدید! سیکھنے کے لیے مائیکروفون ٹَیپ کرو! 🎤",
+    processingQuestion: "تُہند سوال پروسیس گَژھان...",
+    sendingToKidzGPT: "KIDZ-GPT کُن بھیج گَژھان...",
+    readyNext: "اگلے سوال خٲطرٕ تیار!",
+    oopsDifferent: "اوہ! مہربانی کرِتھ اَکھ بیٚی سوال پُچھو۔",
+    chatEmpty: "💬 چیٹ یِتھ ہُندہ دکھنُک!",
+    youLabel: "🎤 تُہند",
+    kidzgptLabel: "🤖 KidzGPT",
+    readyToListen: "سُننہٕ خٲطرٕ تیار!",
+    somethingWrong: "کینہہ غلط گٔیو۔ دوبارہ کوشش کرو!",
+    noAudio: "آڈیو ریکارڈ نہٕ بٔیو۔ دوبارہ کوشش کرو۔",
+  },
+};
+
 const normalizeTo3DScenes = (input: any): Scene[] => {
   if (!Array.isArray(input)) return [];
   return input
@@ -107,6 +436,8 @@ const normalizeTo3DScenes = (input: any): Scene[] => {
 };
 
 export default function Home() {
+  const [, setLocation] = useLocation();
+
   const [isListening, setIsListening] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(
     null
@@ -115,8 +446,27 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [currentSubtitle, setCurrentSubtitle] = useState<string>("Welcome! Tap the microphone to start learning! 🎤");
   const [liveTranscript, setLiveTranscript] = useState<string>("");
-  // "auto" lets the backend (Whisper) detect language from input.
-  const [language, setLanguage] = useState("auto");
+
+  const getInitialUiLanguage = (): UILangCode => {
+    try {
+      const raw = localStorage.getItem("kidzgpt-ui-language") || "en";
+      const normalized = String(raw).trim().toLowerCase();
+      if (normalized in UI_LANGUAGE_LABELS) return normalized as UILangCode;
+    } catch {
+      // ignore
+    }
+    return "en";
+  };
+
+  // UI language controls page text only; it does NOT control voice input/output.
+  const [uiLanguage, setUiLanguage] = useState<UILangCode>(() => getInitialUiLanguage());
+
+  // Voice/request language used for STT/TTS; defaults to auto-detect.
+  const [language, setLanguage] = useState<string>("auto");
+
+  // Translation helper for UI strings (depends on uiLanguage).
+  const t = (key: string) => UI_STRINGS[uiLanguage]?.[key] ?? UI_STRINGS.en[key] ?? key;
+
   const [character, setCharacter] = useState<"boy" | "girl">(() => {
     const saved = localStorage.getItem("kidzgpt-character");
     return saved === "boy" || saved === "girl" ? saved : "girl";
@@ -184,6 +534,19 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("kidzgpt-character", character);
   }, [character]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("kidzgpt-ui-language", uiLanguage);
+    } catch {
+      // ignore
+    }
+
+    // Keep the initial subtitle aligned to UI language when the session is idle.
+    if (chatHistory.length === 0 && !isListening && !isProcessing) {
+      setCurrentSubtitle(t("welcomeSubtitle"));
+    }
+  }, [uiLanguage]);
 
   useEffect(() => {
     // Keep the transcript visible at the bottom while it's updating.
@@ -1220,6 +1583,7 @@ const cleanQuery = (query: string): string => {
           // Once detected, the backend will identify the language and respond accordingly
           const langToSend = language === "auto" || language.includes("IN") ? "auto" : language;
           formData.append("language", langToSend);
+          formData.append("transcript", (liveTranscriptRef.current || "").trim());
           formData.append("character", character);
 
           try {
@@ -1695,21 +2059,18 @@ const cleanQuery = (query: string): string => {
                     className="block text-xs font-semibold opacity-70 mb-1"
                     htmlFor="learn-language"
                   >
-                    Language
+                    {t("uiLanguage")}
                   </label>
                   <select
                     id="learn-language"
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
+                    value={uiLanguage}
+                    onChange={(e) => setUiLanguage(e.target.value as UILangCode)}
                     className="w-full bg-white px-3 py-2 rounded-md shadow-sm border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold"
-                    aria-label="Select language"
+                    aria-label="Select UI language"
                   >
-                    <option value="auto">Auto (detect from voice)</option>
-                    <option value="en-IN">English (India)</option>
-                    <option value="hi-IN">Hindi</option>
-                    <option value="bn-IN">Bengali</option>
-                    <option value="ta-IN">Tamil</option>
-                    <option value="te-IN">Telugu</option>
+                    {Object.entries(UI_LANGUAGE_LABELS).map(([code, label]) => (
+                      <option key={code} value={code}>{label}</option>
+                    ))}
                   </select>
                 </div>
                 <DropdownMenuSeparator />
@@ -1755,17 +2116,19 @@ const cleanQuery = (query: string): string => {
           
           {/* LEFT: CHAT TRANSCRIPT */}
           <section className="lg:col-span-5 flex flex-col gap-4 h-full">
-            {/* Back Button */}
+            {/* Back Button (upper-left of chat section) */}
             <div className="flex justify-start">
               <button
-                onClick={() => window.location.href = "/"}
-                className="flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-md hover:shadow-lg transition-all duration-200 border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold hover:-translate-x-1"
+                type="button"
+                onClick={() => setLocation("/")}
+                className="flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-md hover:shadow-lg transition-all duration-200 border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold"
+                aria-label="Back to Home"
               >
                 <ArrowLeft size={18} />
                 <span className="text-sm">Back to Home</span>
               </button>
             </div>
-            
+
             <div className="card flex-none flex flex-col relative border-4 border-[var(--border-soft)] h-[calc(100vh-320px)] max-h-[calc(100vh-320px)] min-h-[360px] overflow-hidden shadow-xl ring-4 ring-[var(--cta-voice)] ring-opacity-15 bg-chat-zone">
               {/* Floating decorative elements */}
               <div className="floating-element floating-dots animate-float" style={{ top: '10%', left: '5%' }}></div>

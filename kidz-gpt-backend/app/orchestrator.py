@@ -125,13 +125,13 @@ async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str 
         return cached
 
     # 4️⃣ Language detection and validation
-    # Priority: Whisper detected language > User specified language > Auto-detect
+    # Priority: Whisper detected language > Text analysis > User specified language
     original_language = language
     
     # Define supported languages for the platform
     supported_languages = {"en", "hi", "bn", "ta", "te"}
     
-    # Use Whisper's detected language if available (most accurate)
+    # Use Whisper's detected language if available (most accurate for audio)
     if whisper_detected_lang:
         # Normalize language code (e.g., "hi" from Whisper)
         detected = str(whisper_detected_lang).strip().lower().split("-")[0]
@@ -148,25 +148,25 @@ async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str 
             else:
                 language = "en"
                 print(f"⚠️ Could not detect supported language, defaulting to English")
-    elif language in ["en", "auto", "unknown", "", "detect"]:
-        # If no Whisper detection and language is default/auto, try to detect from text
+    elif language in ["auto", "unknown", "", "detect"]:
+        # No Whisper detection and language is auto - try to detect from text
         detected = detect_language(text)
-        if detected and detected in supported_languages and detected != "en":
+        if detected and detected in supported_languages:
             language = detected
-            print(f"✅ Language detected from text content: {detected}")
+            print(f"✅ Language auto-detected from text content: {detected}")
         else:
-            # Keep as English if detection fails
+            # Detection failed, default to English
             language = "en"
-            print(f"ℹ️ Using default language: English")
+            print(f"⚠️ Auto-detection failed, using default language: English")
     else:
-        # User specified a language explicitly - use it
+        # User specified a language explicitly - use it if supported
         # Extract base language code if it's a full tag (e.g., "hi-IN" -> "hi")
         base_lang = language.split("-")[0].lower()
         if base_lang in supported_languages:
             language = base_lang
             print(f"✅ Using user specified language: {language}")
         else:
-            print(f"⚠️ Requested language '{base_lang}' not supported, attempting detection...")
+            print(f"⚠️ Requested language '{base_lang}' not supported, attempting auto-detection...")
             detected = detect_language(text)
             if detected and detected in supported_languages:
                 language = detected
@@ -257,21 +257,36 @@ async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str 
         topic = (intent or {}).get("topic") or ""
         # Set character preference via environment variable for this request
         os.environ["KIDZ_CHARACTER"] = character
-        # Prefer LLM-directed animation plan using the predefined actions.
-        animation_scenes = await generate_animation_scenes(
-            topic=topic,
-            question=text,
-            storyboard_scenes=storyboard.get("scenes", []),
-            language=language,
-        )
 
-        # Fallback to deterministic heuristic mapping.
-        if not animation_scenes:
+        # IMPORTANT:
+        # The frontend prefers `animation_scenes` over `scenes`.
+        # Our LLM-based animation agent is allowed to "rewrite" dialogue for tone,
+        # which can accidentally switch non-English responses back into English.
+        # To keep the displayed dialogue in the child's language (e.g., Hindi),
+        # we use deterministic mapping for non-English.
+        lang_code = (language or "en").strip().lower().split("-")[0]
+        if lang_code != "en":
             animation_scenes = build_animation_scenes(
                 storyboard_scenes=storyboard.get("scenes", []),
-                explainer=None,
+                explainer=explainer,
                 language=language,
             )
+        else:
+            # Prefer LLM-directed animation plan using the predefined actions.
+            animation_scenes = await generate_animation_scenes(
+                topic=topic,
+                question=text,
+                storyboard_scenes=storyboard.get("scenes", []),
+                language=language,
+            )
+
+            # Fallback to deterministic heuristic mapping.
+            if not animation_scenes:
+                animation_scenes = build_animation_scenes(
+                    storyboard_scenes=storyboard.get("scenes", []),
+                    explainer=explainer,
+                    language=language,
+                )
     except Exception as e:
         print(f"⚠️ Animation script generation failed: {e}")
         animation_scenes = []
@@ -296,7 +311,7 @@ async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str 
     return result
 
 
-async def process_audio(audio_file, language: str = "en", character: str = "girl"):
+async def process_audio(audio_file, language: str = "en", character: str = "girl", client_transcript: str | None = None):
 
     stt_timeout_s = float(os.getenv("STT_TIMEOUT_SECONDS", "180"))
 
@@ -310,6 +325,35 @@ async def process_audio(audio_file, language: str = "en", character: str = "girl
         else:
             text = transcription_result
             whisper_detected_lang = None
+
+        # If the browser provided a transcript (e.g., SpeechRecognition), it may be useful,
+        # but some browsers can auto-translate speech recognition into English.
+        # To avoid language mismatch, only trust the client transcript when it appears
+        # to be in the same language as the detected/target language.
+        client_transcript_clean = (client_transcript or "").strip()
+        if client_transcript_clean:
+            target_lang = (whisper_detected_lang or language or "").strip().lower().split("-")[0]
+            # If we don't know the target (e.g. language='auto' and Whisper didn't detect),
+            # accept the client transcript.
+            if not target_lang or target_lang in {"auto", "detect", "unknown"}:
+                text = client_transcript_clean
+                print("🎤 Using client-provided transcript (no reliable language signal)")
+            else:
+                try:
+                    client_lang = detect_language(client_transcript_clean)
+                except Exception:
+                    client_lang = "unknown"
+
+                client_lang = (client_lang or "unknown").strip().lower().split("-")[0]
+
+                # Accept if it matches, or if detection fails.
+                if client_lang in {"unknown", target_lang}:
+                    text = client_transcript_clean
+                    print("🎤 Using client-provided transcript override")
+                else:
+                    print(
+                        f"🎤 Ignoring client transcript override (client={client_lang}, target={target_lang}); using Whisper transcript"
+                    )
 
         # Validate transcription result
         if not text or text.strip() == "":
@@ -326,7 +370,12 @@ async def process_audio(audio_file, language: str = "en", character: str = "girl
             raise Exception(f"Speech-to-text failed: {error_msg}")
         raise
 
-    return await _run_pipeline(text=text, language=language, whisper_detected_lang=whisper_detected_lang, character=character)
+    return await _run_pipeline(
+        text=text,
+        language=language,
+        whisper_detected_lang=whisper_detected_lang,
+        character=character,
+    )
 
 
 async def process_text_query(text: str, language: str = "en", character: str = "girl"):

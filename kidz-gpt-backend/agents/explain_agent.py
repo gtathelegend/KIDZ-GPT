@@ -286,13 +286,44 @@ RESPONSE FORMAT (JSON ONLY):
 
         # Ensure we always return a minimal, well-formed object.
         if not summary:
-            summary = "This is something interesting we can learn about together!"
+            summary_by_lang = {
+                "hi": "यह एक दिलचस्प चीज़ है जिसे हम साथ में आसान तरीके से सीख सकते हैं।",
+                "bn": "এটা একটা মজার বিষয়, আমরা সহজভাবে একসাথে শিখতে পারি।",
+                "ta": "இது ஒரு சுவாரசியமான விஷயம்; நாம் இதை எளிமையாக சேர்ந்து கற்றுக்கொள்ளலாம்।",
+                "te": "ఇది ఆసక్తికరమైన విషయం; మనం దీన్ని సులభంగా కలిసి నేర్చుకోవచ్చు।",
+                "en": "This is something interesting we can learn about together!",
+            }
+            summary = summary_by_lang.get(lang, summary_by_lang["en"])
+
         if not points:
-            points = [
-                "It has some important ideas.",
-                "We can understand it with simple examples.",
-                "Learning this will make you smarter!",
-            ]
+            points_by_lang = {
+                "hi": [
+                    "इसमें कुछ मुख्य बातें होती हैं।",
+                    "हम इसे आसान उदाहरणों से समझ सकते हैं।",
+                    "इसे सीखना बहुत उपयोगी है!",
+                ],
+                "bn": [
+                    "এতে কিছু মূল কথা আছে।",
+                    "সহজ উদাহরণ দিয়ে আমরা বুঝতে পারি।",
+                    "এটা শেখা খুব কাজে লাগে!",
+                ],
+                "ta": [
+                    "இதில் சில முக்கிய கருத்துகள் உள்ளன.",
+                    "எளிய உதாரணங்களால் நமக்கு புரியும்.",
+                    "இதை கற்றுக்கொள்வது பயனுள்ளது!",
+                ],
+                "te": [
+                    "దీనిలో కొన్ని ముఖ్యమైన ఆలోచనలు ఉంటాయి.",
+                    "సులభమైన ఉదాహరణలతో అర్థం చేసుకోవచ్చు.",
+                    "ఇది నేర్చుకోవడం చాలా ఉపయోగం!",
+                ],
+                "en": [
+                    "It has some important ideas.",
+                    "We can understand it with simple examples.",
+                    "Learning this will make you smarter!",
+                ],
+            }
+            points = points_by_lang.get(lang, points_by_lang["en"])
         if not wikipedia_keyword:
             wikipedia_keyword = topic or "learning"
 

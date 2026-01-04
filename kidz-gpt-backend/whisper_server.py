@@ -4,7 +4,7 @@ import tempfile
 import os
 import shutil
 import torch
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 import uvicorn
 
 app = FastAPI()
@@ -20,7 +20,7 @@ def _get_whisper_model():
     if _model is None:
         # Use 'base' model for better multilingual support
         # 'tiny' = weak on non-English, 'small' = good, 'base' = better, 'medium/large' = best but slower
-        model_name = os.getenv("WHISPER_MODEL", "base")
+        model_name = os.getenv("WHISPER_MODEL", "small")
         print(f"Loading whisper model: {model_name}")
         _model = whisper.load_model(model_name, device=_get_whisper_device())
     return _model
@@ -57,7 +57,7 @@ async def startup_event():
     _get_whisper_model()
 
 @app.post("/transcribe")
-async def transcribe_audio(file: UploadFile = File(...), language: str = "en"):
+async def transcribe_audio(file: UploadFile = File(...), language: str = Form("auto")):
     audio_bytes = await file.read()
 
     filename = getattr(file, "filename", None) or "audio.mp3"
@@ -96,13 +96,13 @@ async def transcribe_audio(file: UploadFile = File(...), language: str = "en"):
         
         # Decide transcription language
         # If language is "auto", "detect", or empty, let Whisper auto-detect
-        if normalized_language in ["en", "auto", "detect", "unknown", ""]:
+        if normalized_language in ["auto", "detect", "unknown", ""]:
             transcribe_language = None  # Auto-detect
             print(f"🔍 Auto-detecting language from audio...")
         else:
             # Use mapped language code or fallback to normalized input
             transcribe_language = language_map.get(normalized_language, normalized_language)
-            print(f"🎤 Transcribing with language: {transcribe_language}")
+            print(f"🎤 Transcribing with explicit language: {transcribe_language}")
         
         # Transcribe with language hint
         result = await asyncio.to_thread(

@@ -43,9 +43,10 @@ class TextProcessRequest(BaseModel):
     character: str = "girl"
 @app.post("/process")
 async def process(
-    audio: UploadFile = File(...), 
+    audio: UploadFile = File(...),
     language: str = Form("en"),
-    character: str = Form("girl")
+    character: str = Form("girl"),
+    transcript: str | None = Form(None),
 ):
     try:
         # Normalize language code (e.g., "en-IN" -> "en", "hi-IN" -> "hi").
@@ -53,7 +54,7 @@ async def process(
         normalized = (language or "").strip().lower()
 
         if normalized in ["", "auto", "detect", "unknown"]:
-            base_language = "en"  # triggers auto-detect behavior in whisper_server
+            base_language = "auto"  # Let Whisper auto-detect the language
         elif "-" in normalized:
             base_language = normalized.split("-")[0]
         else:
@@ -64,7 +65,7 @@ async def process(
         if char_normalized not in ["boy", "girl"]:
             char_normalized = "girl"
         
-        return await process_audio(audio, base_language, char_normalized)
+        return await process_audio(audio, base_language, char_normalized, transcript)
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:
@@ -79,7 +80,7 @@ async def process_text(request: TextProcessRequest):
         normalized = (request.language or "").strip().lower()
 
         if normalized in ["", "auto", "detect", "unknown"]:
-            base_language = "en"
+            base_language = "auto"  # Let language detection work on the text
         elif "-" in normalized:
             base_language = normalized.split("-")[0]
         else:

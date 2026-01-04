@@ -162,7 +162,7 @@ JSON FORMAT:
 
         return json.loads(text)
 
-    def _normalize_dialogue(self, dialogue_value: Any) -> str:
+    def _normalize_dialogue(self, dialogue_value: Any, *, lang_code: str = "en") -> str:
         if isinstance(dialogue_value, list):
             text = " ".join(str(x) for x in dialogue_value if x is not None)
         elif isinstance(dialogue_value, dict):
@@ -193,9 +193,17 @@ JSON FORMAT:
         sentences = re.split(r"(?<=[.!?])\s+", text)
         text = " ".join(s.strip() for s in sentences[:2] if s.strip()).strip()
 
-        # Ensure we don't return empty string - provide fallback
+        # Ensure we don't return empty string - provide language-specific fallback
         if not text or len(text) < 2:
-            return "Let me explain that in a simple way."
+            fallback_dialogue = {
+                "hi": "चलो इसे आसान तरीके से समझते हैं।",
+                "bn": "চলো এটা সহজভাবে বুঝি।",
+                "ta": "இதைக் எளிமையாகப் புரிந்துகொள்வோம்।",
+                "te": "దాన్ని సులభంగా అర్థం చేసుకుందాం।",
+                "en": "Let me explain that in a simple way.",
+            }
+            base = (lang_code or "en").lower().split("-")[0]
+            return fallback_dialogue.get(base, fallback_dialogue["en"])
         
         return text
 
@@ -211,7 +219,7 @@ JSON FORMAT:
             if not isinstance(scene, dict):
                 continue
 
-            dialogue = self._normalize_dialogue(scene.get("dialogue", ""))
+            dialogue = self._normalize_dialogue(scene.get("dialogue", ""), lang_code=lang_code)
             
             # Handle empty or invalid dialogue with language-specific fallback
             if not dialogue or len(dialogue.strip()) < 3:
