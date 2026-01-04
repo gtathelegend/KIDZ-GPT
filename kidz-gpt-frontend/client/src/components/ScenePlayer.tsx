@@ -1,10 +1,10 @@
 import { Canvas } from "@react-three/fiber";
+import { useMemo } from "react";
+import Ben10 from "./characters/Ben10";
 import Boy from "./characters/Boy";
 import Girl from "./characters/Girl";
 
-import { useMemo } from "react";
-
-type CharacterId = "boy" | "girl";
+type CharacterId = "boy" | "girl" | "ben10";
 
 type Scene = {
   scene_id?: number;
@@ -27,12 +27,14 @@ type ScenePlayerProps = {
   scenes: Scene[];
   active: boolean;
   playing: boolean;
+  fallbackCharacter?: CharacterId;
 };
 
 export default function ScenePlayer({
   scenes,
   active,
   playing,
+  fallbackCharacter = "girl",
 }: ScenePlayerProps) {
   const safeScenes = useMemo(() => scenes ?? [], [scenes]);
   const scene = safeScenes[0];
@@ -40,8 +42,20 @@ export default function ScenePlayer({
 
   const action = scene.animation?.action || "neutral";
   const loop = scene.animation?.loop ?? true;
+  const safeFallback: CharacterId =
+    fallbackCharacter === "boy" || fallbackCharacter === "ben10"
+      ? fallbackCharacter
+      : "girl";
   const character: CharacterId =
-    scene?.character === "girl" ? "girl" : scene?.character === "boy" ? "boy" : "girl"; // Default to "girl" if undefined
+    safeFallback
+      ? safeFallback
+      : scene?.character === "girl"
+        ? "girl"
+        : scene?.character === "boy"
+          ? "boy"
+          : scene?.character === "ben10"
+            ? "ben10"
+            : "girl";
   const subtitle =
     scene.dialogue?.text ||
     (typeof (scene as any).dialogue === "string" ? (scene as any).dialogue : "") ||
@@ -65,10 +79,16 @@ export default function ScenePlayer({
           <ambientLight intensity={0.6} />
           <directionalLight position={[5, 5, 5]} intensity={1} />
 
-          {character === "girl" ? (
+          {character === "girl" && (
             <Girl action={action} loop={loop} active={active} playing={playing} />
-          ) : (
+          )}
+
+          {character === "boy" && (
             <Boy action={action} loop={loop} active={active} playing={playing} />
+          )}
+
+          {character === "ben10" && (
+            <Ben10 action={action} loop={loop} active={active} playing={playing} />
           )}
         </Canvas>
       </div>

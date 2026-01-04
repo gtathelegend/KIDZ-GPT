@@ -255,7 +255,7 @@ async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str 
     animation_scenes = []
     try:
         topic = (intent or {}).get("topic") or ""
-        # Set character preference via environment variable for this request
+        # Set character preference via environment variable for this request (supports ben10)
         os.environ["KIDZ_CHARACTER"] = character
 
         # IMPORTANT:

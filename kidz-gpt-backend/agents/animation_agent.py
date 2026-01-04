@@ -101,7 +101,7 @@ class AnimationAgent:
         if character_pref == "random":
             seed = f"{topic}|{question}|{lang_code}".encode("utf-8")
             character = "girl" if (hashlib.sha256(seed).digest()[0] % 2 == 0) else "boy"
-        elif character_pref in {"boy", "girl"}:
+        elif character_pref in {"boy", "girl", "ben10"}:
             character = character_pref
         else:
             character = "girl"

@@ -72,7 +72,7 @@ type ExplainerPollResponse = {
 
 type Scene = {
   scene_id?: number;
-  character?: "boy" | "girl";
+  character?: "boy" | "girl" | "ben10";
   animation?: {
     action?: string;
     loop?: boolean;
@@ -423,7 +423,14 @@ const normalizeTo3DScenes = (input: any): Scene[] => {
 
       return {
         scene_id: s?.scene_id ?? s?.scene ?? idx + 1,
-        character: s?.character === "girl" ? "girl" : s?.character === "boy" ? "boy" : undefined,
+        character:
+          s?.character === "girl"
+            ? "girl"
+            : s?.character === "boy"
+              ? "boy"
+              : s?.character === "ben10"
+                ? "ben10"
+                : undefined,
         animation: {
           action: s?.animation?.action ?? "neutral",
           loop: s?.animation?.loop ?? true,
@@ -467,9 +474,9 @@ export default function Home() {
   // Translation helper for UI strings (depends on uiLanguage).
   const t = (key: string) => UI_STRINGS[uiLanguage]?.[key] ?? UI_STRINGS.en[key] ?? key;
 
-  const [character, setCharacter] = useState<"boy" | "girl">(() => {
+  const [character, setCharacter] = useState<"boy" | "girl" | "ben10">(() => {
     const saved = localStorage.getItem("kidzgpt-character");
-    return saved === "boy" || saved === "girl" ? saved : "girl";
+    return saved === "boy" || saved === "girl" || saved === "ben10" ? saved as "boy" | "girl" | "ben10" : "ben10";
   });
   const [speakingDialogueIndex, setSpeakingDialogueIndex] = useState<number | null>(null);
   const [isTextMode, setIsTextMode] = useState(false);
@@ -670,10 +677,18 @@ export default function Home() {
         : null) || (data?.scenes && Array.isArray(data.scenes) ? data.scenes : null);
 
     const normalizedScenes = normalizeTo3DScenes(incoming3D);
+    const resolvedScenes =
+      normalizedScenes.length > 0
+        ? normalizedScenes.map((s) => ({
+            ...s,
+            // Always honor the user's current character selection for playback.
+            character,
+          }))
+        : [];
 
-    if (normalizedScenes.length > 0) {
-      lastScenesRef.current = normalizedScenes;
-      await playScenesWithSpeech(normalizedScenes, ttsLanguage, true);
+    if (resolvedScenes.length > 0) {
+      lastScenesRef.current = resolvedScenes;
+      await playScenesWithSpeech(resolvedScenes, ttsLanguage, true);
     }
 
     // Update the topic explainer section (image + summary) and scroll to it
@@ -2084,10 +2099,11 @@ const cleanQuery = (query: string): string => {
                   <select
                     id="character-select"
                     value={character}
-                    onChange={(e) => setCharacter(e.target.value as "boy" | "girl")}
+                    onChange={(e) => setCharacter(e.target.value as "boy" | "girl" | "ben10")}
                     className="w-full bg-white px-3 py-2 rounded-md shadow-sm border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold"
                     aria-label="Select character"
                   >
+                    <option value="ben10">Ben 10</option>
                     <option value="girl">Girl 👧</option>
                     <option value="boy">Boy 👦</option>
                   </select>
@@ -2348,6 +2364,7 @@ const cleanQuery = (query: string): string => {
                     scenes={scenes.length > 0 ? [scenes[currentSceneIndex]] : []}
                     active={isSceneActive}
                     playing={isScenePlaying}
+                    fallbackCharacter={character}
                   />
                 </div>
               )}
