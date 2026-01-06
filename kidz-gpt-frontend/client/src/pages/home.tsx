@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Mic,
   User,
@@ -26,6 +26,7 @@ import artImage from "@assets/generated_images/creative_art_and_drawing_illustra
 import ScenePlayer from "@/components/ScenePlayer";
 import { GestureFullscreenController } from "@/components/GestureFullscreenController";
 import { GestureZoomController } from "@/components/GestureZoomController";
+import { useBackendGestureDetection } from "@/hooks/useBackendGestureDetection";
 import sceneData from "@/data/sampleScene.json";
 import {
   DropdownMenu,
@@ -486,6 +487,20 @@ export default function Home() {
       : "ben10";
   });
 
+  const getInitialPresetVideoSpeed = (): number => {
+    try {
+      const raw = localStorage.getItem("kidzgpt-preset-video-speed") || "1";
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed)) return 1;
+      // Clamp to a reasonable range.
+      return Math.max(0.5, Math.min(2, parsed));
+    } catch {
+      return 1;
+    }
+  };
+
+  const [presetVideoSpeed, setPresetVideoSpeed] = useState<number>(() => getInitialPresetVideoSpeed());
+
   // Class selection state
   const [selectedClass, setSelectedClass] = useState<string>(() => {
     return localStorage.getItem("kidzgpt-class") || "";
@@ -540,6 +555,8 @@ export default function Home() {
   const processAbortControllerRef = useRef<AbortController | null>(null);
   const lastScenesRef = useRef<Scene[]>(sceneData.scenes);
   const specialVideoRef = useRef<HTMLVideoElement | null>(null);
+  const specialVideoContainerRef = useRef<HTMLDivElement | null>(null);
+  const videoGestureLastApplyAtRef = useRef<number>(0);
 
   // Keyword to preloaded video mapping
   const videoKeywordMap: Record<string, string> = {
@@ -669,6 +686,23 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("kidzgpt-character", character);
   }, [character]);
+
+  // Persist and apply preset-video playback speed.
+  useEffect(() => {
+    try {
+      localStorage.setItem("kidzgpt-preset-video-speed", String(presetVideoSpeed));
+    } catch {
+      // ignore
+    }
+
+    if (specialVideoRef.current) {
+      try {
+        specialVideoRef.current.playbackRate = presetVideoSpeed;
+      } catch {
+        // ignore
+      }
+    }
+  }, [presetVideoSpeed]);
 
   // Show class selection modal on first load if no class selected
   useEffect(() => {
@@ -843,8 +877,9 @@ export default function Home() {
 
     if (resolvedScenes.length > 0) {
       lastScenesRef.current = resolvedScenes;
-      const suppressSpeech = !!specialVideo;
-      await playScenesWithSpeech(resolvedScenes, ttsLanguage, true, suppressSpeech);
+      // Keep TTS enabled even during preset videos; the video is muted and
+      // the "Did you understand it?" overlay is shown only after TTS finishes.
+      await playScenesWithSpeech(resolvedScenes, ttsLanguage, true, false);
     }
 
     // Update the topic explainer section (image + summary) and scroll to it
@@ -990,6 +1025,85 @@ export default function Home() {
     }
     processAbortControllerRef.current = null;
   };
+
+  const getFullscreenElement = () => {
+    if (typeof document === "undefined") return null;
+    return (
+      document.fullscreenElement ||
+      (document as any).webkitFullscreenElement ||
+      (document as any).msFullscreenElement ||
+      null
+    );
+  };
+
+  const isPresetVideoFullscreenActive = () => {
+    const container = specialVideoContainerRef.current;
+    const fsEl = getFullscreenElement();
+    if (!container || !fsEl) return false;
+    return fsEl === container;
+  };
+
+  const requestPresetVideoFullscreen = async () => {
+    const container = specialVideoContainerRef.current;
+    if (!container) return;
+    if (isPresetVideoFullscreenActive()) return;
+
+    try {
+      const anyEl = container as any;
+      const fn = container.requestFullscreen || anyEl.webkitRequestFullscreen || anyEl.msRequestFullscreen;
+      if (fn) await fn.call(container);
+    } catch {
+      // ignore
+    }
+  };
+
+  const exitPresetVideoFullscreen = async () => {
+    try {
+      const fsEl = getFullscreenElement();
+      if (!fsEl) return;
+      if (!isPresetVideoFullscreenActive()) return;
+
+      const anyDoc = document as any;
+      const fn = document.exitFullscreen || anyDoc.webkitExitFullscreen || anyDoc.msExitFullscreen;
+      if (fn) await fn.call(document);
+    } catch {
+      // ignore
+    }
+  };
+
+  // Ensure we don't stay fullscreen if the preset video is cleared.
+  useEffect(() => {
+    if (specialVideo) return;
+    void exitPresetVideoFullscreen();
+  }, [specialVideo]);
+
+  const handlePresetVideoGesture = useCallback(
+    (result: any) => {
+      const now = Date.now();
+      if (now - videoGestureLastApplyAtRef.current < 180) return;
+      videoGestureLastApplyAtRef.current = now;
+
+      const gestureRaw = String(result?.gesture || "");
+      const gestureNormalized = gestureRaw.trim().toLowerCase().replace(/[-\s]+/g, "_");
+      const zoomAction = String(result?.zoom_action || "").trim().toLowerCase();
+
+      // Backend sometimes maps open_palm -> zoom_out; treat zoom_out as open palm.
+      const isOpenPalm = gestureNormalized.includes("open_palm") || zoomAction === "zoom_out";
+
+      if (isOpenPalm) {
+        void requestPresetVideoFullscreen();
+      } else {
+        void exitPresetVideoFullscreen();
+      }
+    },
+    [requestPresetVideoFullscreen, exitPresetVideoFullscreen]
+  );
+
+  // Gesture fullscreen for preset videos while they're actively playing.
+  useBackendGestureDetection({
+    enabled: !!specialVideo && !isProcessing && !videoCompleted,
+    onGestureDetected: handlePresetVideoGesture,
+  });
 
   const scoreVoice = (voice: SpeechSynthesisVoice, langTag: string, preferFemale: boolean = true) => {
     const vLang = (voice.lang || "").toLowerCase();
@@ -1326,6 +1440,7 @@ export default function Home() {
     stopResponseRef.current = true;
     abortInFlightProcessing();
     stopSpeechNow();
+    void exitPresetVideoFullscreen();
     if (specialVideoRef.current) {
       try {
         specialVideoRef.current.pause();
@@ -2227,6 +2342,26 @@ const cleanQuery = (query: string): string => {
     setIsQuizComplete(false);
   };
 
+  const handleTopicSelect = async (topic: string) => {
+    // Clear any special video overlay
+    setVideoCompleted(false);
+    setSpecialVideo(null);
+    
+    // Scroll to chat area
+    setTimeout(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 100);
+    
+    // Simulate a text question about the topic
+    const question = `Tell me about ${topic}`;
+    setTextInput(question);
+    
+    // Process the question after a short delay
+    setTimeout(() => {
+      handleTextSubmit();
+    }, 200);
+  };
+
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -2324,6 +2459,29 @@ const cleanQuery = (query: string): string => {
                   </select>
                 </div>
                 <DropdownMenuSeparator />
+                <div className="px-2 py-1.5">
+                  <label
+                    className="block text-xs font-semibold opacity-70 mb-1"
+                    htmlFor="preset-video-speed"
+                  >
+                    Preset video speed
+                  </label>
+                  <select
+                    id="preset-video-speed"
+                    value={String(presetVideoSpeed)}
+                    onChange={(e) => setPresetVideoSpeed(Number(e.target.value))}
+                    className="w-full bg-white px-3 py-2 rounded-md shadow-sm border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold"
+                    aria-label="Select preset video speed"
+                  >
+                    <option value="0.5">0.5×</option>
+                    <option value="0.75">0.75×</option>
+                    <option value="1">1× (Normal)</option>
+                    <option value="1.25">1.25×</option>
+                    <option value="1.5">1.5×</option>
+                    <option value="2">2×</option>
+                  </select>
+                </div>
+                <DropdownMenuSeparator />
                 {/* <DropdownMenuItem
                   onSelect={() => {
                     window.location.href = "/login";
@@ -2338,7 +2496,7 @@ const cleanQuery = (query: string): string => {
         </div>
       </header>
 
-      <div className="flex flex-col gap-6 pt-32 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
+      <div className="flex flex-col gap-6 pt-40 px-4 pb-4 md:px-6 md:pb-6 lg:px-8 lg:pb-8 max-w-7xl mx-auto">
         <main className="flex-1 flex flex-col gap-6">
         
         {/* ================= UPPER SECTION: CHAT & ANIMATION ================= */}
@@ -2594,20 +2752,31 @@ const cleanQuery = (query: string): string => {
               ) : (
                 <div className="absolute inset-0 z-10 flex items-center justify-center px-4 py-4">
                   {specialVideo ? (
-                    <video
-                      ref={specialVideoRef}
-                      src={specialVideo}
-                      autoPlay
-                      muted={true}
-                      controls={false}
-                      playsInline
-                      onEnded={() => setVideoCompleted(true)}
-                      className="w-full h-full object-cover rounded-3xl shadow-3xl border-4 border-[var(--cta-primary)]"
-                    />
+                    <div ref={specialVideoContainerRef} className="w-full h-full">
+                      <video
+                        ref={specialVideoRef}
+                        src={specialVideo}
+                        autoPlay
+                        muted={true}
+                        controls={false}
+                        playsInline
+                        onLoadedMetadata={() => {
+                          try {
+                            if (specialVideoRef.current) {
+                              specialVideoRef.current.playbackRate = presetVideoSpeed;
+                            }
+                          } catch {
+                            // ignore
+                          }
+                        }}
+                        onEnded={() => setVideoCompleted(true)}
+                        className="w-full h-full object-cover rounded-3xl shadow-3xl border-4 border-[var(--cta-primary)]"
+                      />
+                    </div>
                   ) : (
                   <GestureZoomController
                     onZoomChange={setCameraZoom}
-                    enableDetection={!isProcessing}
+                    enableDetection={!isProcessing && !specialVideo}
                     showFullscreenButton={true}
                     fullscreenBackgroundImageUrl={`/${currentBackground}`}
                   >
@@ -2634,9 +2803,12 @@ const cleanQuery = (query: string): string => {
                     <div className="flex gap-4 w-full">
                       <button
                         onClick={() => {
-                          setShowUnderstandingCheck(true);
                           setVideoCompleted(false);
-                          topicExplainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          setSpecialVideo(null);
+                          setTimeout(() => {
+                            const exploreSection = document.querySelector('[data-explore-section]');
+                            exploreSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }, 200);
                         }}
                         className="flex-1 bg-gradient-to-r from-[#4CAF50] to-[#81C784] hover:shadow-xl text-white font-bold text-lg py-4 px-6 rounded-2xl transition-all duration-300 hover:scale-105 border-4 border-[#2E7D32]"
                       >
@@ -2804,7 +2976,7 @@ const cleanQuery = (query: string): string => {
         )}
 
         {/* ================= BOTTOM SECTION: RELATED TOPICS ================= */}
-        <section className="mt-4">
+        <section className="mt-4" data-explore-section>
           <div className="mb-6 px-2">
             <h3 className="text-4xl font-bold bg-gradient-to-r from-[#FF6B6B] via-[#FFA500] to-[#4CAF50] bg-clip-text text-transparent font-[Comic Neue] flex items-center gap-3 animate-pulse">
               Keep Exploring! 🚀
@@ -2856,9 +3028,11 @@ const cleanQuery = (query: string): string => {
               { topic: 'Planets', emoji: '🪐', gradient: 'from-[#191970] to-[#4169E1]' },
               { topic: 'Sports', emoji: '⚽', gradient: 'from-[#32CD32] to-[#98FB98]' }
             ].map((item, i) => (
-              <div 
-                key={i} 
-                className={`min-w-[180px] md:min-w-[220px] h-40 md:h-48 bg-gradient-to-br ${item.gradient} rounded-3xl shadow-2xl flex flex-col items-center justify-center gap-4 p-6 cursor-pointer transition-all duration-300 border-4 border-white snap-start relative overflow-hidden group hover-lift hover-wiggle`}
+              <button
+                key={i}
+                onClick={() => handleTopicSelect(item.topic)}
+                disabled={isProcessing || isListening}
+                className={`min-w-[180px] md:min-w-[220px] h-40 md:h-48 bg-gradient-to-br ${item.gradient} rounded-3xl shadow-2xl flex flex-col items-center justify-center gap-4 p-6 cursor-pointer transition-all duration-300 border-4 border-white snap-start relative overflow-hidden group hover-lift hover-wiggle disabled:opacity-60 disabled:cursor-not-allowed`}
               >
                 {/* Decorative shine effect */}
                 <div className="absolute top-0 right-0 w-20 h-20 bg-white opacity-20 rounded-full blur-xl group-hover:opacity-40 transition-opacity"></div>
@@ -2870,7 +3044,7 @@ const cleanQuery = (query: string): string => {
                 <span className="relative z-10 font-bold text-white text-xl md:text-2xl drop-shadow-lg font-[Comic Neue] text-center">
                   {item.topic}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         </section>
