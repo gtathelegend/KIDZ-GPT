@@ -84,7 +84,7 @@ export default function ScenePlayer({
   return (
     <div className="w-full h-full flex flex-col">
       <div className="flex-1 min-h-[280px]">
-        <Canvas camera={{ position: [0, 1.5, cameraDistance], fov: 45 }}>
+        <Canvas camera={{ position: [0, 0.8, cameraDistance], fov: 45 }}>
           <ambientLight intensity={0.6} />
           <directionalLight position={[5, 5, 5]} intensity={1} />
 
