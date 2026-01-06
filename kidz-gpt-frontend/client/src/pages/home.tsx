@@ -2452,10 +2452,10 @@ const cleanQuery = (query: string): string => {
                     className="w-full bg-white px-3 py-2 rounded-md shadow-sm border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold"
                     aria-label="Select character"
                   >
-                    <option value="ben10">Ben 10</option>
-                    <option value="oggy">Oggy</option>
-                    <option value="girl">Girl 👧</option>
                     <option value="boy">Boy 👦</option>
+                    <option value="girl">Girl 👧</option>
+                    <option value="oggy">Oggy</option>
+                    <option value="ben10">Ben 10</option>
                   </select>
                 </div>
                 <DropdownMenuSeparator />
