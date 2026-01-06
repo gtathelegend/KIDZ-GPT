@@ -27,12 +27,22 @@ A vibrant, interactive learning platform that uses AI and 3D character animation
 - **Quiz Generation**: AI-generated quizzes based on explained topics
 - **Scoring System**: Real-time quiz feedback with scoring
 - **Colorful Chat Interface**: Vibrant gradient bubbles for user/AI messages
+- **Topic Exploration**: Clickable recommendation cards to explore related topics
+- **Understanding Verification**: "Did you understand it?" overlays guide users to next topics
 
 ### 🎧 **Web Speech API TTS**
 - Browser-native text-to-speech
 - Multiple voice options per language
 - Natural speaking rate and pitch control
 - Playback controls (stop, replay)
+- Female voice preference for clear, friendly dialogue
+
+### 🎬 **Preset Video Support**
+- Pre-loaded educational videos for specific topics (body parts, animals, earth, vegetables, sense organs)
+- Hand gesture fullscreen control (open palm gesture)
+- Adjustable playback speed (0.5× to 2×) with persistence
+- Synchronized dialogue playback with video
+- Understanding verification after video completion
 
 ### 🌍 **Multi-Language Support**
 - **Full Pipeline**: STT → Intent Extraction → Storyboard → Animation → TTS
@@ -205,66 +215,78 @@ Cache includes: scenes, animations, explainer
 ## 🚀 Installation & Setup
 
 ### **Prerequisites**
-- Python 3.9+
-- Node.js 18+
-- FFmpeg (for Whisper)
-- Ollama (local LLM server)
-- Redis (optional, for caching)
+- Python 3.9+ (download from [python.org](https://www.python.org/downloads/))
+- Node.js 18+ (download from [nodejs.org](https://nodejs.org/))
+- FFmpeg (for Whisper audio processing)
+- Ollama (local LLM server - download from [ollama.ai](https://ollama.ai))
+- Git (for cloning the repository)
 
-### **Step 1: Clone & Install Python Dependencies**
+### **Quick Start Guide**
+
+#### **Step 1: Clone Repository**
 
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/KIDZ-GPT.git
 cd KIDZ-GPT
+```
 
-# Backend setup
+#### **Step 2: Set Up Python Backend with Virtual Environment**
+
+**Windows (Command Prompt or PowerShell):**
+```bash
+# Navigate to backend directory
 cd kidz-gpt-backend
+
+# Create virtual environment
 python -m venv venv
 
 # Activate virtual environment
-# On Windows:
 venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
 
-# Install dependencies
+# Install Python dependencies
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### **Step 2: Install Ollama**
-
-1. Download from [ollama.ai](https://ollama.ai)
-2. Run the installer
-3. Pull the required model:
-   ```bash
-   ollama pull gpt-oss:120b-cloud
-   ```
-4. Start Ollama (runs on `http://localhost:11434` by default)
-
-### **Step 3: Install FFmpeg**
-
-**Windows:**
+**macOS/Linux (Terminal):**
 ```bash
-pip install imageio-ffmpeg
+# Navigate to backend directory
+cd kidz-gpt-backend
+
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Install Python dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-**macOS:**
+**Verifying Virtual Environment:**
 ```bash
-brew install ffmpeg
+# After activation, you should see (venv) at the start of your terminal
+# To verify Python path:
+which python    # On macOS/Linux
+where python    # On Windows
+
+# To deactivate virtual environment (when done):
+deactivate
 ```
 
-**Linux:**
-```bash
-sudo apt-get install ffmpeg
-```
+#### **Step 3: Set Up Environment Variables**
 
-### **Step 4: Set Up Environment Variables**
+Create a `.env` file in the `kidz-gpt-backend/` directory:
 
-Create `.env` file in `kidz-gpt-backend/`:
 ```env
 # Ollama Configuration
 OLLAMA_URL=http://localhost:11434/api/generate
 OLLAMA_MODEL=gpt-oss:120b-cloud
 OLLAMA_MODEL_INTENT=gpt-oss:120b-cloud
+OLLAMA_MODEL_SCRIPT=gpt-oss:120b-cloud
+OLLAMA_MODEL_ANIMATION=gpt-oss:120b-cloud
 
 # Whisper Configuration
 WHISPER_MODEL=base
@@ -273,48 +295,126 @@ WHISPER_MODEL=base
 STT_TIMEOUT_SECONDS=180
 CACHE_TTL_SECONDS=3600
 
-# Redis (optional)
+# Optional: Redis Cache
 REDIS_URL=redis://localhost:6379/0
 
-# Frontend
+# Frontend API URL
 VITE_API_URL=http://localhost:8000
+
+# Character Selection
+KIDZ_CHARACTER=girl
 ```
 
-### **Step 5: Start Backend Services**
+#### **Step 4: Install Ollama & Download Model**
 
-**Terminal 1 - Whisper Server:**
+1. Download Ollama from [ollama.ai](https://ollama.ai)
+2. Run the installer and complete setup
+3. Open terminal/command prompt and pull the model:
+
+```bash
+ollama pull gpt-oss:120b-cloud
+```
+
+4. Keep Ollama running (it will serve on `http://localhost:11434`):
+
+```bash
+ollama serve
+```
+
+#### **Step 5: Install FFmpeg**
+
+**Windows (using pip):**
+```bash
+# Make sure your venv is activated, then:
+pip install imageio-ffmpeg
+```
+
+**macOS (using Homebrew):**
+```bash
+brew install ffmpeg
+```
+
+**Linux (using apt):**
+```bash
+sudo apt-get update
+sudo apt-get install ffmpeg
+```
+
+#### **Step 6: Start Backend Services**
+
+Make sure you have 2 separate terminal windows with the virtual environment activated.
+
+**Terminal 1 - Whisper Server (Port 8001):**
 ```bash
 cd kidz-gpt-backend
+# Make sure venv is activated: source venv/bin/activate (or venv\Scripts\activate on Windows)
 python whisper_server.py
-# Runs on http://localhost:8001
 ```
 
-**Terminal 2 - Main Backend:**
+**Terminal 2 - Main API Server (Port 8000):**
 ```bash
 cd kidz-gpt-backend
+# Make sure venv is activated: source venv/bin/activate (or venv\Scripts\activate on Windows)
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-# Runs on http://localhost:8000
 ```
 
-### **Step 6: Install & Start Frontend**
+You should see:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Press CTRL+C to quit
+```
+
+#### **Step 7: Set Up & Start Frontend**
+
+**Terminal 3 - Frontend Development Server (Port 5000):**
 
 ```bash
 cd kidz-gpt-frontend
 
-# Install dependencies
+# Install Node.js dependencies
 npm install
 
 # Start development server
 npm run dev:client
-# Runs on http://localhost:5000
 ```
 
-### **Step 7: Access the Application**
+You should see:
+```
+  VITE v5.x.x  ready in xxx ms
 
-Open your browser and navigate to:
+  ➜  Local:   http://localhost:5000/
+```
+
+#### **Step 8: Access the Application**
+
+Open your web browser and navigate to:
 ```
 http://localhost:5000
 ```
+
+**Success! 🎉** You should now see the KIDZ-GPT landing page.
+
+### **Troubleshooting Installation**
+
+**Python venv not activating?**
+- Windows: Try `python -m venv venv` instead of `py -m venv venv`
+- macOS/Linux: Ensure you're using `python3` not `python2`
+- Clear old venv: Delete the `venv` folder and create fresh
+
+**Ollama not connecting?**
+- Ensure Ollama is running: `ollama serve`
+- Check if port 11434 is open: `curl http://localhost:11434`
+- Model not downloaded? Run: `ollama pull gpt-oss:120b-cloud`
+
+**Dependencies failing to install?**
+- Upgrade pip: `pip install --upgrade pip`
+- Clear pip cache: `pip cache purge`
+- Try installing with compatible versions: `pip install -r requirements.txt --no-cache-dir`
+
+**Frontend not loading?**
+- Clear browser cache (Ctrl+Shift+Del / Cmd+Shift+Del)
+- Kill Vite process and restart: `npm run dev:client`
+- Check Node version: `node --version` (should be 18+)
 
 ## 🎯 Usage
 
@@ -326,28 +426,62 @@ http://localhost:5000
 5. Watch the quiz section appear for reinforcement
 
 ### **Text Input**
-1. Click the text input field
-2. Type your question
-3. System auto-detects language from text
-4. Get animated response with explanation
-5. Take an interactive quiz
+1. Click "Or type your question" button
+2. Type your question in the text area
+3. Click "Send" or press Enter
+4. System auto-detects language from text
+5. Get animated response with explanation
+
+### **Interactive Topic Exploration**
+
+#### **Understanding Verification After Videos**
+When a preset video completes:
+- "Did you understand it? 🤔" overlay appears
+- Click **✅ Yes!** → Automatically scroll to "Keep Exploring!" section
+- Click **❌ No, Show Again** → Video replays (alternates between versions for body parts)
+
+#### **Topic Recommendation Cards**
+In the "Keep Exploring! 🚀" section:
+- Browse 16+ educational topics (Dinosaurs, Ocean Life, Volcanoes, etc.)
+- Click any topic card to:
+  - Generate a natural question about that topic
+  - Auto-scroll to the chat interface
+  - Start the learning conversation immediately
+  - Display animations, explanations, and quiz
+
+### **3D Character Controls**
+
+#### **Gesture Controls**
+- **Pinch to Zoom**: Control camera zoom level
+- **Open Palm (Fullscreen)**: During preset videos, open your palm to fullscreen (supported on devices with camera)
+
+#### **Character Selection**
+- Change character in Settings dropdown
+- Options: Ben 10 👨, Oggy 👦, Girl 👧, Boy 👦
+- Selection is saved automatically
+
+### **Playback Controls**
+- **⏹️ Stop**: Halt current response and all speech
+- **🔄 Replay**: Re-play the last response with all animations
+- **📊 Quiz**: Take a quiz to test understanding
+- **🎨 Background**: Toggle between two themed backgrounds (automatic)
+
+### **Preset Video Controls**
+- **Fullscreen**: Open palm gesture or click fullscreen button
+- **Speed Control**: 0.5× to 2× playback speed (Settings → Preset video speed)
+- **Speed Persistence**: Your speed preference is saved automatically
 
 ### **Language Selection**
 - System automatically detects from audio/text
-- Manual selection available in language dropdown
-- Supports: English, Hindi, Bengali, Tamil, Telugu
-
-### **Controls**
-- **⏹️ Stop**: Halt current response playback
-- **🔄 Replay**: Re-play the last response
-- **🎧 Quiz**: Take a quiz on the topic
-- **🖼️ Background**: Toggle between two themed backgrounds
+- Manual selection available in Settings dropdown
+- Supports: English (en), Hindi (hi), Bengali (bn), Tamil (ta), Telugu (te)
 
 ## 🧠 How Language Detection Works
 
 ### **Priority Order:**
 1. **Whisper Audio Detection** (Most Accurate)
    - OpenAI Whisper analyzes audio
+
    - Detects language from speech patterns
    - Example: User speaks in Hindi → Whisper returns "hi"
 
