@@ -1,3 +1,4 @@
+# Core
 fastapi
 uvicorn
 pydantic
@@ -19,6 +20,9 @@ pyttsx3
 # OR
 TTS   # Coqui TTS
 
+# Gesture Recognition (Backend)
+mediapipe
+opencv-python
 # Utils
 numpy
 python-dotenv

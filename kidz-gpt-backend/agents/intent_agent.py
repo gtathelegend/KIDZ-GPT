@@ -11,9 +11,9 @@ class IntentAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
         # Allow a dedicated intent model; fallback to the general model.
-        self.model = os.getenv("OLLAMA_MODEL_INTENT", os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud"))
+        self.model = os.getenv("OLLAMA_MODEL_INTENT", os.getenv("OLLAMA_MODEL", "deepseek-v3.1:671b-cloud"))
 
-    async def _extract_intent_from_ollama(self, text: str, language: str = "en") -> Dict[str, Any]:
+    async def _extract_intent_from_ollama(self, text: str, language: str = "en", selected_class: str | None = None) -> Dict[str, Any]:
         lang_code = (language or "en").strip().lower().split("-")[0]
         lang_name = {
             "en": "English",
@@ -22,6 +22,14 @@ class IntentAgent:
             "ta": "Tamil (தமிழ்)",
             "te": "Telugu (తెలుగు)",
         }.get(lang_code, language or "English")
+
+        grade_hint = (selected_class or "").strip()
+        if grade_hint:
+            grade_line = f"The child is in class/grade: {grade_hint}. Adjust the difficulty and vocabulary to be appropriate for this grade."
+            difficulty_value = f"child-{grade_hint}"
+        else:
+            grade_line = "The child is in primary school (ages 6-10). Keep everything at that level."
+            difficulty_value = "child"
 
         prompt = f"""
 You are an intent and learning-context extractor for a children's learning platform.
@@ -32,11 +40,12 @@ that will help explain the topic in a simple, visual, child-friendly way.
 Extract the following fields:
 - topic: a short, clear noun phrase (2-6 words) that describes the main subject.
 - question_type: one of [general, what, why, how, when, where, who].
-- difficulty: always "child".
+- difficulty: a short string describing difficulty, such as "child" or "child-<grade>".
 
 Guidelines:
 - The utterance is in {lang_name}. The topic MUST be written in {lang_name}.
 - Do NOT translate the topic to another language.
+{grade_line}
 - Choose the most specific learning topic possible
   (example: "why the Moon is visible at night" instead of "space").
 - If multiple ideas appear, choose the one the explanation should focus on.
@@ -53,7 +62,7 @@ Utterance:
 "{text}"
 
 Return exactly this JSON structure:
-{{"topic":"...","question_type":"...","difficulty":"child"}}
+{{"topic":"...","question_type":"...","difficulty":"{difficulty_value}"}}
 """
         
         data = {
@@ -112,7 +121,7 @@ Return exactly this JSON structure:
         return json.loads(raw)
 
 
-    async def extract_intent(self, text: str, language: str = "en") -> Dict[str, Any]:
+    async def extract_intent(self, text: str, language: str = "en", selected_class: str | None = None) -> Dict[str, Any]:
         """
         Returns a dict like:
         { "topic": "...", "question_type": "...", "difficulty": "child" }
@@ -120,14 +129,14 @@ Return exactly this JSON structure:
         if not text:
             return {"topic": "", "question_type": "general", "difficulty": "child"}
 
-        return await self._extract_intent_from_ollama(text, language)
+        return await self._extract_intent_from_ollama(text, language, selected_class=selected_class)
 
 
 _default_agent = IntentAgent()
 
 
-async def extract_intent(text: str, language: str = "en") -> Dict[str, Any]:
-    return await _default_agent.extract_intent(text, language)
+async def extract_intent(text: str, language: str = "en", selected_class: str | None = None) -> Dict[str, Any]:
+    return await _default_agent.extract_intent(text, language, selected_class=selected_class)
 
 # A non-async version for parts of the app that are not async
 def extract_intent_sync(text: str, language: str = "en") -> Dict[str, Any]:

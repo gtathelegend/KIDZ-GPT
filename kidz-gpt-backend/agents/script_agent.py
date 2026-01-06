@@ -11,9 +11,15 @@ class ScriptAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
         # Allow a dedicated storyboard model; fallback to the general model.
-        self.model = os.getenv("OLLAMA_MODEL_SCRIPT", os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud"))
+        self.model = os.getenv("OLLAMA_MODEL_SCRIPT", os.getenv("OLLAMA_MODEL", "deepseek-v3.1:671b-cloud"))
 
-    async def _generate_storyboard_from_ollama(self, intent: Dict[str, Any], language: str, question: str = "") -> Dict[str, Any]:
+    async def _generate_storyboard_from_ollama(
+        self,
+        intent: Dict[str, Any],
+        language: str,
+        question: str = "",
+        selected_class: str | None = None,
+    ) -> Dict[str, Any]:
         topic = (intent or {}).get("topic") or "a random topic"
         question = (question or "").strip()
 
@@ -25,6 +31,12 @@ class ScriptAgent:
             "ta": "Tamil (தமிழ்)",
             "te": "Telugu (తెలుగు)",
         }.get(lang_code, language or "English")
+
+        grade_hint = (selected_class or "").strip()
+        if grade_hint:
+            grade_block = f"The child is in class/grade: {grade_hint}. Keep explanations, vocabulary, and examples appropriate for this grade."
+        else:
+            grade_block = "The child is in primary school (roughly classes 15). Keep explanations at that level."
 
         system_prompt = """
 You are an educational explanation generator for young children.
@@ -60,6 +72,9 @@ Child's Question:
 
 Language:
 {lang_name}
+
+Child grade information:
+{grade_block}
 
 STRICT RULES:
 - The storyboard MUST directly answer the child's question.
@@ -289,11 +304,22 @@ JSON FORMAT:
             
         return {"scenes": [{"scene": 1, "background": "day_sky", "dialogue": f"{topic} is really cool! It helps us understand how the world works."}, {"scene": 2, "background": "wrap_up", "dialogue": f"Remember: {topic} means a simple main idea plus a few important points. That’s the key!"}]}
 
-    async def generate_storyboard(self, intent: Dict[str, Any], language: str = "en", question: str = "") -> Dict[str, Any]:
+    async def generate_storyboard(
+        self,
+        intent: Dict[str, Any],
+        language: str = "en",
+        question: str = "",
+        selected_class: str | None = None,
+    ) -> Dict[str, Any]:
         if not intent:
             return self._heuristic_storyboard({"topic": ""}, language)
 
-        result = await self._generate_storyboard_from_ollama(intent, language, question)
+        result = await self._generate_storyboard_from_ollama(
+            intent,
+            language,
+            question,
+            selected_class=selected_class,
+        )
         # Always return schema-compatible output to the frontend.
         try:
             schema_obj = StoryboardSchema(**result)
@@ -307,9 +333,20 @@ JSON FORMAT:
 _default_agent = ScriptAgent()
 
 
-async def generate_storyboard(intent: Dict[str, Any], language: str = "en") -> Dict[str, Any]:
-    return await _default_agent.generate_storyboard(intent, language)
+async def generate_storyboard(intent: Dict[str, Any], language: str = "en", selected_class: str | None = None) -> Dict[str, Any]:
+    return await _default_agent.generate_storyboard(intent, language, selected_class=selected_class)
+
 
 # Backward-compatible helper that allows passing the raw question text.
-async def generate_storyboard_with_question(intent: Dict[str, Any], question: str, language: str = "en") -> Dict[str, Any]:
-    return await _default_agent.generate_storyboard(intent, language, question)
+async def generate_storyboard_with_question(
+    intent: Dict[str, Any],
+    question: str,
+    language: str = "en",
+    selected_class: str | None = None,
+) -> Dict[str, Any]:
+    return await _default_agent.generate_storyboard(
+        intent,
+        language,
+        question,
+        selected_class=selected_class,
+    )

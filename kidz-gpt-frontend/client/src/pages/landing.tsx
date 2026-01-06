@@ -1,3 +1,4 @@
+
 import React from "react";
 import { Link } from "wouter";
 import { Play, ChevronRight, Sparkles, Brain, Send, Star, Volume2 } from "lucide-react";
@@ -174,12 +175,12 @@ export default function Landing() {
                   Get Started <ChevronRight size={20}/>
                 </button>
               </Link>
-              <button className="flex items-center gap-3 font-bold text-[var(--text-primary)] hover:text-[var(--cta-voice)] transition-colors group">
+              {/* <button className="flex items-center gap-3 font-bold text-[var(--text-primary)] hover:text-[var(--cta-voice)] transition-colors group">
                 <div className="h-10 w-10 rounded-full border-2 border-[var(--cta-voice)] flex items-center justify-center group-hover:bg-[var(--cta-voice)] group-hover:text-white transition-all">
                   <Play size={16} fill="currentColor" />
                 </div>
                 See it in Action
-              </button>
+              </button> */}
             </div>
 
             {/* Stats Card */}
@@ -192,7 +193,7 @@ export default function Landing() {
                <div className="h-10 w-[1px] bg-white/20"></div>
                <div className="text-center z-10">
                  <div className="text-sm opacity-80 font-medium">Ages</div>
-                 <div className="text-3xl font-black">5-12</div>
+                 <div className="text-3xl font-black">4-12</div>
                </div>
                <div className="h-10 w-[1px] bg-white/20"></div>
                <div className="text-center z-10">

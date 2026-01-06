@@ -96,7 +96,7 @@ async def _compute_explainer_and_update_cache(*, cache_id: str, topic: str, ques
             set(question, payload)
 
 
-async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str | None = None, character: str = "girl"):
+async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str | None = None, character: str = "girl", selected_class: str = ""):
     """Shared pipeline used by both audio and text entry.
 
     Expects clean text + a best-effort language hint.
@@ -183,11 +183,16 @@ async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str 
     
     print(f"🌐 Final language for pipeline: {language}")
 
-    # 5️⃣ Intent extraction
-    intent = await extract_intent(text, language)
+    # 5️⃣ Intent extraction (grade-aware)
+    intent = await extract_intent(text, language, selected_class=selected_class)
 
-    # 6️⃣ Storyboard generation
-    storyboard = await generate_storyboard_with_question(intent, question=text, language=language)
+    # 6️⃣ Storyboard generation (grade-aware)
+    storyboard = await generate_storyboard_with_question(
+        intent,
+        question=text,
+        language=language,
+        selected_class=selected_class,
+    )
 
     # NOTE: We no longer do a separate translation step.
     # The storyboard + explainer should be generated directly in the user's spoken language
@@ -200,7 +205,12 @@ async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str 
     explainer_error = None
     try:
         topic = (intent or {}).get("topic") or ""
-        explainer = await generate_explainer(topic=topic, question=text, language=language)
+        explainer = await generate_explainer(
+            topic=topic,
+            question=text,
+            language=language,
+            selected_class=selected_class,
+        )
         explainer_status = "ready"
         
         # Fetch Wikipedia image using the keyword from the explainer
@@ -297,6 +307,7 @@ async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str 
         "job_id": cache_id,
         "language": language,
         "original_text": text,
+        "selected_class": selected_class,
         "intent": intent,
         "explainer": explainer,
         "explainer_status": explainer_status,
@@ -311,8 +322,13 @@ async def _run_pipeline(*, text: str, language: str, whisper_detected_lang: str 
     return result
 
 
-async def process_audio(audio_file, language: str = "en", character: str = "girl", client_transcript: str | None = None):
-
+async def process_audio(
+    audio_file,
+    language: str = "en",
+    character: str = "girl",
+    client_transcript: str | None = None,
+    selected_class: str = "",
+):
     stt_timeout_s = float(os.getenv("STT_TIMEOUT_SECONDS", "180"))
 
     # 1️⃣ Speech to text (MUST come first)
@@ -375,9 +391,21 @@ async def process_audio(audio_file, language: str = "en", character: str = "girl
         language=language,
         whisper_detected_lang=whisper_detected_lang,
         character=character,
+        selected_class=selected_class,
     )
 
 
-async def process_text_query(text: str, language: str = "en", character: str = "girl"):
+async def process_text_query(
+    text: str,
+    language: str = "en",
+    character: str = "girl",
+    selected_class: str = "",
+):
     """Process a plain text question (no audio)."""
-    return await _run_pipeline(text=text, language=language, whisper_detected_lang=None, character=character)
+    return await _run_pipeline(
+        text=text,
+        language=language,
+        whisper_detected_lang=None,
+        character=character,
+        selected_class=selected_class,
+    )

@@ -78,7 +78,7 @@ def _normalize_action(action: str) -> str:
 class AnimationAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model = os.getenv("OLLAMA_MODEL_ANIMATION", os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud"))
+        self.model = os.getenv("OLLAMA_MODEL_ANIMATION", os.getenv("OLLAMA_MODEL", "deepseek-v3.1:671b-cloud"))
 
     async def generate_animation_scenes(
         self,

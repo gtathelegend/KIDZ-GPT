@@ -10,7 +10,7 @@ import httpx
 class TranslateAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model = os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud")
+        self.model = os.getenv("OLLAMA_MODEL", "deepseek-v3.1:671b-cloud")
 
     def _language_name(self, language: str) -> str:
         lang = (language or "").strip().lower().split("-")[0]

@@ -1,10 +1,11 @@
 import { Canvas } from "@react-three/fiber";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Ben10 from "./characters/Ben10";
 import Boy from "./characters/Boy";
 import Girl from "./characters/Girl";
+import Oggy from "./characters/Oggy";
 
-type CharacterId = "boy" | "girl" | "ben10";
+type CharacterId = "boy" | "girl" | "ben10" | "oggy";
 
 type Scene = {
   scene_id?: number;
@@ -28,6 +29,7 @@ type ScenePlayerProps = {
   active: boolean;
   playing: boolean;
   fallbackCharacter?: CharacterId;
+  zoomLevel?: number;
 };
 
 export default function ScenePlayer({
@@ -35,6 +37,7 @@ export default function ScenePlayer({
   active,
   playing,
   fallbackCharacter = "girl",
+  zoomLevel = 1,
 }: ScenePlayerProps) {
   const safeScenes = useMemo(() => scenes ?? [], [scenes]);
   const scene = safeScenes[0];
@@ -43,7 +46,7 @@ export default function ScenePlayer({
   const action = scene.animation?.action || "neutral";
   const loop = scene.animation?.loop ?? true;
   const safeFallback: CharacterId =
-    fallbackCharacter === "boy" || fallbackCharacter === "ben10"
+    fallbackCharacter === "boy" || fallbackCharacter === "ben10" || fallbackCharacter === "oggy"
       ? fallbackCharacter
       : "girl";
   const character: CharacterId =
@@ -62,6 +65,10 @@ export default function ScenePlayer({
     "";
   const shouldShowSubtitle = Boolean(playing && subtitle.trim());
 
+  // Calculate camera distance based on zoom level
+  // Normal distance is 4, zoom in reduces it, zoom out increases it
+  const cameraDistance = 4 / zoomLevel;
+
   console.log("ScenePlayer Debug:", {
     character,
     action,
@@ -69,13 +76,15 @@ export default function ScenePlayer({
     active,
     playing,
     sceneCharacter: scene?.character,
-    animation: scene.animation
+    animation: scene.animation,
+    zoomLevel,
+    cameraDistance,
   });
 
   return (
     <div className="w-full h-full flex flex-col">
       <div className="flex-1 min-h-[280px]">
-        <Canvas camera={{ position: [0, 1.5, 4], fov: 45 }}>
+        <Canvas camera={{ position: [0, 1.5, cameraDistance], fov: 45 }}>
           <ambientLight intensity={0.6} />
           <directionalLight position={[5, 5, 5]} intensity={1} />
 
@@ -89,6 +98,10 @@ export default function ScenePlayer({
 
           {character === "ben10" && (
             <Ben10 action={action} loop={loop} active={active} playing={playing} />
+          )}
+
+          {character === "oggy" && (
+            <Oggy action={action} loop={loop} active={active} playing={playing} />
           )}
         </Canvas>
       </div>

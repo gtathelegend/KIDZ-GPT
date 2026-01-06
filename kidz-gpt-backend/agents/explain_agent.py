@@ -178,7 +178,7 @@ class ExplainAgent:
 
     def __init__(self) -> None:
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model = os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud")
+        self.model = os.getenv("OLLAMA_MODEL", "deepseek-v3.1:671b-cloud")
 
     def _parse_ollama_json(self, response_content: Any) -> Dict[str, Any]:
         """Best-effort JSON extraction from Ollama-style responses."""
@@ -215,6 +215,7 @@ class ExplainAgent:
         topic: str,
         question: str,
         language: str = "en",
+        selected_class: Optional[str] = None,
     ) -> Dict[str, Any]:
         topic = (topic or "").strip()
         question = (question or "").strip()
@@ -228,9 +229,17 @@ class ExplainAgent:
             "te": "Telugu (తెలుగు)",
         }.get(lang, language or "English")
 
+        grade_hint = (selected_class or "").strip()
+        if grade_hint:
+            grade_block = f"The child is in class/grade: {grade_hint}. Keep the concepts, vocabulary, examples, and sentence length suitable for this grade level."
+        else:
+            grade_block = "The child is in primary school (roughly classes 1–5). Explain at that level using very simple language."
+
         system = f"""
 You are a kind teacher for kids aged 6–10.
 Explain school topics in very simple {lang_name}.
+
+{grade_block}
 
 Return a short explanation with:
 - A friendly title for the topic.
@@ -338,7 +347,12 @@ RESPONSE FORMAT (JSON ONLY):
 _default_agent = ExplainAgent()
 
 
-async def generate_explainer(topic: str, question: str, language: str = "en") -> Dict[str, Any]:
+async def generate_explainer(
+    topic: str,
+    question: str,
+    language: str = "en",
+    selected_class: Optional[str] = None,
+) -> Dict[str, Any]:
     """Public helper used by the orchestrator.
 
     Wrapped this way to match the existing import:
@@ -349,4 +363,5 @@ async def generate_explainer(topic: str, question: str, language: str = "en") ->
         topic=topic,
         question=question,
         language=language,
+        selected_class=selected_class,
     )

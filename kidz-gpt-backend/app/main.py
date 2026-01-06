@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from services.translation_service import translate_text
 from services.cache_service import get_by_key
+from services.gesture_service import detect_gesture
 from agents.quiz_agent import generate_quiz
 
 load_dotenv()
@@ -26,6 +27,40 @@ class TranslationRequest(BaseModel):
     text: str
     to_language: str = "en"
 
+
+class GestureDetectionRequest(BaseModel):
+    frame: str  # Base64-encoded image frame from camera
+
+
+@app.post("/detect-gesture")
+async def detect_gesture_endpoint(request: GestureDetectionRequest):
+    """
+    Detect hand gesture from a camera frame.
+    
+    Request body:
+      - frame: Base64-encoded image from frontend camera
+    
+    Returns:
+      {
+        "gesture": "open_palm" | "closed_fist" | null,
+        "confidence": 0.85,
+        "hand_detected": true,
+        "hand_count": 1,
+        "error": null
+      }
+    """
+    try:
+        if not request.frame:
+            raise HTTPException(status_code=400, detail="Missing frame data")
+        
+        result = detect_gesture(request.frame)
+        return result
+    except Exception as e:
+        print("❌ ERROR OCCURRED during gesture detection")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/translate")
 async def translate(request: TranslationRequest):
     try:
@@ -41,12 +76,14 @@ class TextProcessRequest(BaseModel):
     text: str
     language: str = "en"
     character: str = "girl"
+    selected_class: str | None = ""
 @app.post("/process")
 async def process(
     audio: UploadFile = File(...),
     language: str = Form("en"),
     character: str = Form("girl"),
     transcript: str | None = Form(None),
+    selected_class: str = Form(""),
 ):
     try:
         # Normalize language code (e.g., "en-IN" -> "en", "hi-IN" -> "hi").
@@ -65,7 +102,7 @@ async def process(
         if char_normalized not in ["boy", "girl"]:
             char_normalized = "girl"
         
-        return await process_audio(audio, base_language, char_normalized, transcript)
+        return await process_audio(audio, base_language, char_normalized, transcript, selected_class)
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:
@@ -91,7 +128,12 @@ async def process_text(request: TextProcessRequest):
         if char_normalized not in ["boy", "girl"]:
             char_normalized = "girl"
 
-        return await process_text_query(request.text, base_language, char_normalized)
+        return await process_text_query(
+            request.text,
+            base_language,
+            char_normalized,
+            selected_class=request.selected_class or "",
+        )
     except TimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e))
     except Exception as e:
@@ -138,7 +180,8 @@ async def create_quiz(request: dict):
     Request body:
       - topic: string
       - explainer: object (with title, summary, points)
-      - language: string (optional, default "en")
+    - language: string (optional, default "en")
+    - selected_class: string (optional) – the child's class/grade
     
     Returns:
       - questions: array of quiz questions
@@ -147,6 +190,7 @@ async def create_quiz(request: dict):
         topic = request.get("topic", "")
         explainer = request.get("explainer", {})
         language = request.get("language", "en")
+        selected_class = request.get("selected_class", "")
         
         if not topic and not explainer:
             raise HTTPException(status_code=400, detail="Missing topic or explainer")
@@ -154,7 +198,8 @@ async def create_quiz(request: dict):
         result = await generate_quiz(
             topic=topic,
             explainer=explainer,
-            language=language
+            language=language,
+            selected_class=selected_class or "",
         )
 
         # quiz_agent.generate_quiz returns: {"questions": [ ... ]}
@@ -164,5 +209,3 @@ async def create_quiz(request: dict):
         print("❌ ERROR OCCURRED during quiz generation")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
-

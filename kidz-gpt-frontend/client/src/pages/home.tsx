@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Trophy,
   PartyPopper,
+  Check,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import logoImg from "@assets/kidz-gpt_1767288550163.jpeg";
@@ -23,6 +24,8 @@ import oceanLifeImage from "@assets/generated_images/cute_3d_panda_toy_on_wheels
 import dinosaursImage from "@assets/generated_images/cute_3d_minion_toy_character.png";
 import artImage from "@assets/generated_images/creative_art_and_drawing_illustration.png";
 import ScenePlayer from "@/components/ScenePlayer";
+import { GestureFullscreenController } from "@/components/GestureFullscreenController";
+import { GestureZoomController } from "@/components/GestureZoomController";
 import sceneData from "@/data/sampleScene.json";
 import {
   DropdownMenu,
@@ -72,7 +75,7 @@ type ExplainerPollResponse = {
 
 type Scene = {
   scene_id?: number;
-  character?: "boy" | "girl" | "ben10";
+  character?: "boy" | "girl" | "ben10" | "oggy";
   animation?: {
     action?: string;
     loop?: boolean;
@@ -430,6 +433,8 @@ const normalizeTo3DScenes = (input: any): Scene[] => {
               ? "boy"
               : s?.character === "ben10"
                 ? "ben10"
+                : s?.character === "oggy"
+                  ? "oggy"
                 : undefined,
         animation: {
           action: s?.animation?.action ?? "neutral",
@@ -474,13 +479,36 @@ export default function Home() {
   // Translation helper for UI strings (depends on uiLanguage).
   const t = (key: string) => UI_STRINGS[uiLanguage]?.[key] ?? UI_STRINGS.en[key] ?? key;
 
-  const [character, setCharacter] = useState<"boy" | "girl" | "ben10">(() => {
+  const [character, setCharacter] = useState<"boy" | "girl" | "ben10" | "oggy">(() => {
     const saved = localStorage.getItem("kidzgpt-character");
-    return saved === "boy" || saved === "girl" || saved === "ben10" ? saved as "boy" | "girl" | "ben10" : "ben10";
+    return saved === "boy" || saved === "girl" || saved === "ben10" || saved === "oggy"
+      ? (saved as "boy" | "girl" | "ben10" | "oggy")
+      : "ben10";
   });
+
+  // Class selection state
+  const [selectedClass, setSelectedClass] = useState<string>(() => {
+    return localStorage.getItem("kidzgpt-class") || "";
+  });
+  const [showClassModal, setShowClassModal] = useState(false);
+
+  const classOptions = ["Nursery", "Kindergarten", "1", "2", "3", "4", "5"];
+
+  const handleClassSelect = (classLevel: string) => {
+    setSelectedClass(classLevel);
+    localStorage.setItem("kidzgpt-class", classLevel);
+    setShowClassModal(false);
+  };
+
   const [speakingDialogueIndex, setSpeakingDialogueIndex] = useState<number | null>(null);
   const [isTextMode, setIsTextMode] = useState(false);
   const [textInput, setTextInput] = useState("");
+  
+  // Preloaded video understanding check state
+  const [currentPreloadedKeyword, setCurrentPreloadedKeyword] = useState<string | null>(null);
+  const [showUnderstandingCheck, setShowUnderstandingCheck] = useState(false);
+  const [videoCompleted, setVideoCompleted] = useState(false);
+  const [bodyPartsVideoVersion, setBodyPartsVideoVersion] = useState(1); // Track which version of body-parts video to play
   
   // Quiz state
   const [showQuiz, setShowQuiz] = useState(false);
@@ -496,7 +524,7 @@ export default function Home() {
     pitch: 0.9,  // Slightly lower pitch tends to sound more masculine (0-2)
     rate: 0.95,   // Slightly faster than before, but still very clear and professional (0.1-10)
     volume: 1.0,  // Max volume for clarity
-    preferFemale: false
+    preferFemale: true
   });
 
   const streamRef = useRef<MediaStream | null>(null);
@@ -511,6 +539,106 @@ export default function Home() {
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const processAbortControllerRef = useRef<AbortController | null>(null);
   const lastScenesRef = useRef<Scene[]>(sceneData.scenes);
+  const specialVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Keyword to preloaded video mapping
+  const videoKeywordMap: Record<string, string> = {
+    "body parts": "/assets/preloaded/body-parts.mp4",
+    "body part": "/assets/preloaded/body-parts.mp4",
+    "skin": "/assets/preloaded/body-parts.mp4",
+    "muscle": "/assets/preloaded/body-parts.mp4",
+    "bone": "/assets/preloaded/body-parts.mp4",
+    "organs": "/assets/preloaded/body-parts.mp4",
+    "skeleton": "/assets/preloaded/body-parts.mp4",
+    "anatomy": "/assets/preloaded/body-parts.mp4",
+    
+    "animals": "/assets/preloaded/animals.mp4",
+    "animal": "/assets/preloaded/animals.mp4",
+    "lion": "/assets/preloaded/animals.mp4",
+    "tiger": "/assets/preloaded/animals.mp4",
+    "elephant": "/assets/preloaded/animals.mp4",
+    "zebra": "/assets/preloaded/animals.mp4",
+    "giraffe": "/assets/preloaded/animals.mp4",
+    "wildlife": "/assets/preloaded/animals.mp4",
+    
+    "earth": "/assets/preloaded/earth.mp4",
+    "planet": "/assets/preloaded/earth.mp4",
+    "world": "/assets/preloaded/earth.mp4",
+    "globe": "/assets/preloaded/earth.mp4",
+    "geography": "/assets/preloaded/earth.mp4",
+    
+    "sense organs": "/assets/preloaded/senseorgans.mp4",
+    "5 senses": "/assets/preloaded/senseorgans.mp4",
+    "5 sense organs": "/assets/preloaded/senseorgans.mp4",
+    "sense organ": "/assets/preloaded/senseorgans.mp4",
+    "eye": "/assets/preloaded/senseorgans.mp4",
+    "ear": "/assets/preloaded/senseorgans.mp4",
+    "nose": "/assets/preloaded/senseorgans.mp4",
+    "tongue": "/assets/preloaded/senseorgans.mp4",
+    "sight": "/assets/preloaded/senseorgans.mp4",
+    "hearing": "/assets/preloaded/senseorgans.mp4",
+    "smell": "/assets/preloaded/senseorgans.mp4",
+    "taste": "/assets/preloaded/senseorgans.mp4",
+    "touch": "/assets/preloaded/senseorgans.mp4",
+    
+    "vegetables": "/assets/preloaded/vegetables.mp4",
+    "vegetable": "/assets/preloaded/vegetables.mp4",
+    "carrot": "/assets/preloaded/vegetables.mp4",
+    "broccoli": "/assets/preloaded/vegetables.mp4",
+    "cucumber": "/assets/preloaded/vegetables.mp4",
+    "spinach": "/assets/preloaded/vegetables.mp4",
+    "tomato": "/assets/preloaded/vegetables.mp4",
+    "pumpkin": "/assets/preloaded/vegetables.mp4",
+  };
+
+  // Function to check if any keyword matches the text
+  const getPreloadedVideoUrl = (text: string, videoVersion: number = 1): { url: string; keyword: string } | null => {
+    const lowerText = (text || "").toLowerCase().trim();
+    
+    // Check multi-word keywords first (longer matches have priority)
+    const multiWordKeywords = Object.keys(videoKeywordMap)
+      .filter(k => k.includes(" "))
+      .sort((a, b) => b.length - a.length);
+    
+    for (const keyword of multiWordKeywords) {
+      if (lowerText.includes(keyword)) {
+        console.log(`🎬 Preloaded video matched for keyword: "${keyword}"`);
+        
+        // For body parts, alternate between body-parts.mp4 and body-parts2.mp4
+        let videoUrl = videoKeywordMap[keyword];
+        if (keyword.includes("body") && videoVersion === 2) {
+          videoUrl = "/assets/preloaded/body-parts2.mp4";
+          console.log(`🎬 Using alternate video (version 2): body-parts2.mp4`);
+        }
+        
+        return { url: videoUrl, keyword };
+      }
+    }
+    
+    // Then check single-word keywords
+    const singleWordKeywords = Object.keys(videoKeywordMap)
+      .filter(k => !k.includes(" "))
+      .sort((a, b) => b.length - a.length);
+    
+    for (const keyword of singleWordKeywords) {
+      if (lowerText.includes(keyword)) {
+        console.log(`🎬 Preloaded video matched for keyword: "${keyword}"`);
+        
+        // For body parts, alternate between body-parts.mp4 and body-parts2.mp4
+        let videoUrl = videoKeywordMap[keyword];
+        if (keyword === "skin" || keyword === "body" || keyword === "bone" || keyword === "skeleton" || keyword === "organs" || keyword === "anatomy") {
+          if (videoVersion === 2) {
+            videoUrl = "/assets/preloaded/body-parts2.mp4";
+            console.log(`🎬 Using alternate video (version 2): body-parts2.mp4`);
+          }
+        }
+        
+        return { url: videoUrl, keyword };
+      }
+    }
+    
+    return null;
+  };
 
   const [topicExplainer, setTopicExplainer] = useState<TopicExplainer>({
     title: "",
@@ -542,6 +670,16 @@ export default function Home() {
     localStorage.setItem("kidzgpt-character", character);
   }, [character]);
 
+  // Show class selection modal on first load if no class selected
+  useEffect(() => {
+    if (!selectedClass) {
+      const timer = setTimeout(() => {
+        setShowClassModal(true);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedClass]);
+
   useEffect(() => {
     try {
       localStorage.setItem("kidzgpt-ui-language", uiLanguage);
@@ -566,6 +704,7 @@ export default function Home() {
     }, 50);
     return () => clearTimeout(id);
   }, [liveTranscript, isListening, isProcessing]);
+  const [specialVideo, setSpecialVideo] = useState<string | null>(null);
   const [scenes, setScenes] = useState<Scene[]>(sceneData.scenes);
   const [isSceneActive, setIsSceneActive] = useState(false);
   const [isScenePlaying, setIsScenePlaying] = useState(false);
@@ -573,6 +712,7 @@ export default function Home() {
   const [isSpeechActive, setIsSpeechActive] = useState(false);
   const [isReplayRunning, setIsReplayRunning] = useState(false);
   const [currentBackground, setCurrentBackground] = useState<"back.jpeg" | "back2.jpeg">("back.jpeg");
+  const [cameraZoom, setCameraZoom] = useState(1);
 
   useEffect(() => {
     if (!hasExplainer) return;
@@ -583,6 +723,7 @@ export default function Home() {
       topicExplainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 150);
   }, [hasExplainer, isSceneActive]);
+
 
   // Removed auto-scroll on chat history changes to prevent unwanted scrolling during use
 
@@ -646,17 +787,31 @@ export default function Home() {
 
     // Add user message first
     const originalText = typeof data?.original_text === "string" ? data.original_text.trim() : "";
+    // Check for preloaded video match based on keywords in the user prompt
+    const matchedVideo = getPreloadedVideoUrl(originalText, 1); // Always start with version 1 for new questions
+    if (matchedVideo) {
+      setSpecialVideo(matchedVideo.url);
+      setCurrentPreloadedKeyword(matchedVideo.keyword);
+      setBodyPartsVideoVersion(1); // Reset to version 1 for new questions
+      // console.log(`🎬 Preloaded video activated: ${matchedVideo.url}`);
+    } else {
+      setSpecialVideo(null);
+      setCurrentPreloadedKeyword(null);
+    }
+
     if (originalText) {
       setChatHistory((prev) => [...prev, { actor: "kid", text: originalText }]);
       chatLenRef.current += 1;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-
     // Clear any live transcript once the backend transcription arrives.
     setLiveTranscript("");
 
     // Backend response has arrived; drop processing state so animation resumes and preloader hides.
     setIsProcessing(false);
+    
+    // Reset video completion state for new question
+    setVideoCompleted(false);
 
     // Toggle background image for variety
     setCurrentBackground((prev) => (prev === "back.jpeg" ? "back2.jpeg" : "back.jpeg"));
@@ -688,7 +843,8 @@ export default function Home() {
 
     if (resolvedScenes.length > 0) {
       lastScenesRef.current = resolvedScenes;
-      await playScenesWithSpeech(resolvedScenes, ttsLanguage, true);
+      const suppressSpeech = !!specialVideo;
+      await playScenesWithSpeech(resolvedScenes, ttsLanguage, true, suppressSpeech);
     }
 
     // Update the topic explainer section (image + summary) and scroll to it
@@ -704,13 +860,18 @@ export default function Home() {
       setTopicExplainer(nextExplainer);
       explainerScrollPendingRef.current = true;
 
-      const imageQuery = rawTopic || data?.original_text || "";
-      const imageUrl = await fetchTopicImage(imageQuery, ttsLanguage);
+      // Use the intent topic (from backend) for better Wikipedia image search
+      // Pass both the topic and original query for fallback
+      const imageUrl = await fetchTopicImage(
+        data?.original_text || "",
+        ttsLanguage,
+        rawTopic  // Pass the extracted intent topic directly
+      );
       if (imageUrl) {
         setTopicExplainer((prev) => ({
           ...prev,
           imageSrc: imageUrl,
-          imageAlt: imageQuery ? String(imageQuery) : prev.imageAlt,
+          imageAlt: rawTopic || data?.original_text || prev.imageAlt,
         }));
       }
     } finally {
@@ -1073,7 +1234,12 @@ export default function Home() {
     });
   };
 
-  const playScenesWithSpeech = async (scenesToPlay: Scene[], ttsLanguage: string, addToChat: boolean) => {
+  const playScenesWithSpeech = async (
+    scenesToPlay: Scene[],
+    ttsLanguage: string,
+    addToChat: boolean,
+    suppressSpeech: boolean = false,
+  ) => {
     if (!scenesToPlay || scenesToPlay.length === 0 || stopResponseRef.current) {
       return;
     }
@@ -1137,9 +1303,11 @@ export default function Home() {
 
       setCurrentSubtitle(dialogue);
       setSpeakingDialogueIndex(addToChat ? chatMessageIndex : null);
-      setIsScenePlaying(true);
+      setIsScenePlaying(!suppressSpeech);
 
-      await speakText(dialogue, ttsLanguage);
+      if (!suppressSpeech) {
+        await speakText(dialogue, ttsLanguage);
+      }
 
       setSpeakingDialogueIndex(null);
       setIsScenePlaying(false);
@@ -1158,6 +1326,14 @@ export default function Home() {
     stopResponseRef.current = true;
     abortInFlightProcessing();
     stopSpeechNow();
+    if (specialVideoRef.current) {
+      try {
+        specialVideoRef.current.pause();
+        specialVideoRef.current.currentTime = 0;
+      } catch {
+        // ignore
+      }
+    }
     setSpeakingDialogueIndex(null);
     setIsScenePlaying(false);
     setIsSceneActive(false);
@@ -1175,7 +1351,7 @@ export default function Home() {
     setIsReplayRunning(true);
     try {
       if (hasScenes) {
-        await playScenesWithSpeech(lastScenesRef.current, language, false);
+        await playScenesWithSpeech(lastScenesRef.current, language, false, !!specialVideo);
       }
       if (!hasScenes && lastAi) {
         setCurrentSubtitle(lastAi.text);
@@ -1383,12 +1559,31 @@ const cleanQuery = (query: string): string => {
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   };
 
-  const fetchTopicImage = async (query: string, langHint?: string): Promise<string | null> => {
-    const q = (query || "").trim();
-    if (!q) return null;
+  const extractMainTopic = (text: string): string => {
+    // Remove common question words and filler
+    const questionWords = ["what", "why", "how", "when", "where", "who", "which", "is", "are", "do", "does", "did", "can", "could", "would", "should", "will", "shall"];
+    const words = (text || "").toLowerCase().trim().split(/\s+/);
+    
+    // Remove question words and articles
+    const filtered = words.filter(w => !questionWords.includes(w) && !["a", "an", "the"].includes(w));
+    
+    // Return first 2-3 important words for better search relevance
+    const topic = filtered.slice(0, 3).join(" ");
+    return topic || text;
+  };
+
+  const fetchTopicImage = async (query: string, langHint?: string, intentTopic?: string): Promise<string | null> => {
+    let searchQuery = (intentTopic || query || "").trim();
+    
+    // If no intent topic provided, extract the main topic from the query
+    if (!intentTopic && query) {
+      searchQuery = extractMainTopic(query);
+    }
+    
+    if (!searchQuery) return null;
 
     const originalLang = toWikiLangCode(langHint || language || "en");
-    let translatedQuery = q;
+    let translatedQuery = searchQuery;
 
     if (originalLang !== "en") {
       try {
@@ -1397,12 +1592,12 @@ const cleanQuery = (query: string): string => {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ text: q, to_language: "en" }),
+          body: JSON.stringify({ text: searchQuery, to_language: "en" }),
         });
         if (translateResponse.ok) {
           const data = await translateResponse.json();
           translatedQuery = data.translated_text;
-          console.log(`📝 Translated "${q}" to "${translatedQuery}" for image search.`);
+          console.log(`📝 Translated "${searchQuery}" to "${translatedQuery}" for image search.`);
         }
       } catch (e) {
         console.error("Translation failed, falling back to original query.", e);
@@ -1506,13 +1701,16 @@ const cleanQuery = (query: string): string => {
       openSearchUrl.searchParams.set("origin", "*");
 
       const openSearchResp = await fetch(openSearchUrl.toString());
-      if (!openSearchResp.ok) return null;
+      if (!openSearchResp.ok) {
+        console.warn(`⚠️ Wikipedia OpenSearch failed for "${translatedQuery}". Using fallback illustration.`);
+        return buildIllustrationDataUrl(translatedQuery);
+      }
       const openSearchData = await openSearchResp.json().catch(() => null);
       
       const pageTitle = openSearchData?.[1]?.[0];
       if (!pageTitle) {
-        console.warn(`⚠️ No relevant Wikipedia page title found for "${translatedQuery}"`);
-        return null;
+        console.warn(`⚠️ No relevant Wikipedia page title found for "${translatedQuery}". Using fallback illustration.`);
+        return buildIllustrationDataUrl(translatedQuery);
       }
       
       console.log(`✅ Found relevant page title: "${pageTitle}"`);
@@ -1528,17 +1726,24 @@ const cleanQuery = (query: string): string => {
       queryUrl.searchParams.set("redirects", "1");
 
       const queryResp = await fetch(queryUrl.toString());
-      if (!queryResp.ok) return null;
+      if (!queryResp.ok) {
+        console.warn(`⚠️ Wikipedia query failed for "${pageTitle}". Using fallback illustration.`);
+        return buildIllustrationDataUrl(translatedQuery);
+      }
       const queryData = await queryResp.json().catch(() => null);
       const pagesObj = queryData?.query?.pages || {};
       const pages = Object.values(pagesObj) as any[];
       const page = pages?.[0];
       const imageUrl = typeof page?.thumbnail?.source === "string" ? page.thumbnail.source : "";
-      if (imageUrl && (await isSafeExplanationImage(imageUrl))) return imageUrl;
-      return buildIllustrationDataUrl(q);
+      if (imageUrl && (await isSafeExplanationImage(imageUrl))) {
+        console.log(`✅ Topic image found: ${imageUrl.substring(0, 80)}...`);
+        return imageUrl;
+      }
+      console.warn(`⚠️ No suitable image found for "${pageTitle}". Using fallback illustration.`);
+      return buildIllustrationDataUrl(translatedQuery);
     } catch (e) {
       console.error(`❌ Topic image fetch error for "${translatedQuery}":`, e);
-      return buildIllustrationDataUrl(q);
+      return buildIllustrationDataUrl(translatedQuery);
     }
   };
 
@@ -1560,6 +1765,9 @@ const cleanQuery = (query: string): string => {
         if (typeof window !== "undefined" && "speechSynthesis" in window) {
           stopSpeechNow();
         }
+
+        // New question: clear any special video override
+        setSpecialVideo(null);
 
         // Clear previous transcript and start live transcription (best-effort).
         setLiveTranscript("");
@@ -1600,6 +1808,7 @@ const cleanQuery = (query: string): string => {
           formData.append("language", langToSend);
           formData.append("transcript", (liveTranscriptRef.current || "").trim());
           formData.append("character", character);
+          formData.append("selected_class", selectedClass);
 
           try {
             setCurrentSubtitle("Sending to KIDZ-GPT...");
@@ -1742,6 +1951,9 @@ const cleanQuery = (query: string): string => {
       setIsProcessing(true);
       setCurrentSubtitle("Thinking about your question...");
 
+      // New text question: clear any special video override
+      setSpecialVideo(null);
+
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
@@ -1757,6 +1969,7 @@ const cleanQuery = (query: string): string => {
           text: trimmed,
           language,
           character,
+          selected_class: selectedClass,
         }),
         signal: controller.signal,
       });
@@ -1924,6 +2137,7 @@ const cleanQuery = (query: string): string => {
             points: topicExplainer.points,
           },
           language: language,
+          selected_class: selectedClass,
         }),
         signal: controller.signal,
       });
@@ -2050,7 +2264,7 @@ const cleanQuery = (query: string): string => {
       <div className="corner-blob tl" />
       <div className="corner-blob br" />
       {/* ================= HEADER ================= */}
-      <header className="fixed top-0 left-0 right-0 z-50 px-4 md:px-6 lg:px-8 py-2 border-b-2 border-[var(--border-soft)] md:border-none">
+      <header className="fixed top-0 left-0 right-0 z-[9999] px-4 md:px-6 lg:px-8 py-2 border-b-2 border-[var(--border-soft)] md:border-none bg-white/95 backdrop-blur-sm shadow-md">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src={logoImg} alt="KidzGPT Logo" className="h-12 md:h-14 object-contain" />
@@ -2099,31 +2313,32 @@ const cleanQuery = (query: string): string => {
                   <select
                     id="character-select"
                     value={character}
-                    onChange={(e) => setCharacter(e.target.value as "boy" | "girl" | "ben10")}
+                    onChange={(e) => setCharacter(e.target.value as "boy" | "girl" | "ben10" | "oggy")}
                     className="w-full bg-white px-3 py-2 rounded-md shadow-sm border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold"
                     aria-label="Select character"
                   >
                     <option value="ben10">Ben 10</option>
+                    <option value="oggy">Oggy</option>
                     <option value="girl">Girl 👧</option>
                     <option value="boy">Boy 👦</option>
                   </select>
                 </div>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
+                {/* <DropdownMenuItem
                   onSelect={() => {
                     window.location.href = "/login";
                   }}
                 >
                   <LogIn size={16} />
                   Login
-                </DropdownMenuItem>
+                </DropdownMenuItem> */}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
       </header>
 
-      <div className="flex flex-col gap-6 pt-20 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
+      <div className="flex flex-col gap-6 pt-32 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
         <main className="flex-1 flex flex-col gap-6">
         
         {/* ================= UPPER SECTION: CHAT & ANIMATION ================= */}
@@ -2132,8 +2347,8 @@ const cleanQuery = (query: string): string => {
           
           {/* LEFT: CHAT TRANSCRIPT */}
           <section className="lg:col-span-5 flex flex-col gap-4 h-full">
-            {/* Back Button (upper-left of chat section) */}
-            <div className="flex justify-start">
+            {/* Back Button & Class Selection (upper-left of chat section) */}
+            <div className="flex justify-start gap-3 items-center flex-wrap">
               <button
                 type="button"
                 onClick={() => setLocation("/")}
@@ -2143,6 +2358,22 @@ const cleanQuery = (query: string): string => {
                 <ArrowLeft size={18} />
                 <span className="text-sm">Back to Home</span>
               </button>
+
+              {/* Class Selection Dropdown */}
+              {selectedClass && (
+                <div className="px-4 py-2 bg-gradient-to-r from-[#4CAF50] to-[#81C784] rounded-full shadow-md border-2 border-[var(--border-soft)] text-white font-bold text-sm flex items-center gap-2">
+                  <span className="text-lg">📚</span>
+                  <span>Class: {selectedClass}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowClassModal(true)}
+                    className="ml-1 text-white hover:text-yellow-200 transition-colors"
+                    aria-label="Change class"
+                  >
+                    ✏️
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="card flex-none flex flex-col relative border-4 border-[var(--border-soft)] h-[calc(100vh-320px)] max-h-[calc(100vh-320px)] min-h-[360px] overflow-hidden shadow-xl ring-4 ring-[var(--cta-voice)] ring-opacity-15 bg-chat-zone">
@@ -2263,7 +2494,7 @@ const cleanQuery = (query: string): string => {
                 <button
                   type="button"
                   onClick={replayLastResponse}
-                  disabled={!hasAiResponse || isProcessing || isListening}
+                  disabled={!hasAiResponse || isProcessing || isListening || !!specialVideo}
                   className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border-2 border-[var(--cta-primary)] bg-white text-[var(--text-primary)] font-bold shadow-sm disabled:opacity-60 disabled:cursor-not-allowed hover:shadow-md transition-all"
                   aria-label="Replay the last response"
                 >
@@ -2329,18 +2560,20 @@ const cleanQuery = (query: string): string => {
             
             {/* CHARACTER / ANIMATION AREA */}
             <div className="character-container flex-1 flex flex-col items-center justify-center relative overflow-hidden min-h-[420px] lg:min-h-[410px] bg-animation-zone animate-glow-border rounded-3xl">
-              {/* Background Image */}
+              {/* Background Image - Hidden when preloaded video is playing */}
               <div 
-                className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat rounded-3xl transition-all duration-500"
+                className={`absolute inset-0 z-0 bg-cover bg-center bg-no-repeat rounded-3xl transition-all duration-500 ${
+                  specialVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'
+                }`}
                 style={{
                   backgroundImage: `url('/${currentBackground}')`,
                 }}
               />
 
-              {/* Floating decorative elements */}
-              <div className="absolute top-10 left-10 w-20 h-20 bg-white opacity-20 rounded-full blur-xl animate-float"></div>
-              <div className="absolute bottom-10 right-10 w-32 h-32 bg-[var(--bg-secondary)] opacity-30 rounded-full blur-2xl animate-float-slow"></div>
-              <div className="absolute top-1/2 left-1/4 w-16 h-16 bg-purple-300 opacity-15 rounded-full blur-lg animate-float" style={{ animationDelay: '1s' }}></div>
+              {/* Floating decorative elements - Hidden when preloaded video is playing */}
+              <div className={`absolute top-10 left-10 w-20 h-20 bg-white opacity-20 rounded-full blur-xl animate-float transition-opacity duration-300 ${specialVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}></div>
+              <div className={`absolute bottom-10 right-10 w-32 h-32 bg-[var(--bg-secondary)] opacity-30 rounded-full blur-2xl animate-float-slow transition-opacity duration-300 ${specialVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}></div>
+              <div className={`absolute top-1/2 left-1/4 w-16 h-16 bg-purple-300 opacity-15 rounded-full blur-lg animate-float transition-opacity duration-300 ${specialVideo ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} style={{ animationDelay: '1s' }}></div>
 
               {isProcessing ? (
                 <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/85 backdrop-blur-sm px-4 py-4">
@@ -2354,18 +2587,89 @@ const cleanQuery = (query: string): string => {
                       className="w-full max-h-[360px] object-cover rounded-3xl shadow-xl border-4 border-[var(--cta-primary)]"
                     />
                     <p className="text-lg md:text-xl font-bold text-[var(--text-primary)] text-center drop-shadow-sm">
-                      KIDZ-GPT is thinking... hang tight!
+                      KIDZ-GPT is preparing personalized content... hang tight!
                     </p>
                   </div>
                 </div>
               ) : (
                 <div className="absolute inset-0 z-10 flex items-center justify-center px-4 py-4">
-                  <ScenePlayer
-                    scenes={scenes.length > 0 ? [scenes[currentSceneIndex]] : []}
-                    active={isSceneActive}
-                    playing={isScenePlaying}
-                    fallbackCharacter={character}
-                  />
+                  {specialVideo ? (
+                    <video
+                      ref={specialVideoRef}
+                      src={specialVideo}
+                      autoPlay
+                      muted={true}
+                      controls={false}
+                      playsInline
+                      onEnded={() => setVideoCompleted(true)}
+                      className="w-full h-full object-cover rounded-3xl shadow-3xl border-4 border-[var(--cta-primary)]"
+                    />
+                  ) : (
+                  <GestureZoomController
+                    onZoomChange={setCameraZoom}
+                    enableDetection={!isProcessing}
+                    showFullscreenButton={true}
+                    fullscreenBackgroundImageUrl={`/${currentBackground}`}
+                  >
+                    <ScenePlayer
+                      scenes={scenes.slice(currentSceneIndex, currentSceneIndex + 1)}
+                      active={isSceneActive}
+                      playing={isScenePlaying}
+                      fallbackCharacter={character}
+                      zoomLevel={cameraZoom}
+                    />
+                  </GestureZoomController>
+                  )}
+                </div>
+              )}
+
+              {/* Understanding Check - Shown after preloaded video completes */}
+              {specialVideo && videoCompleted && !isSpeechActive && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm rounded-3xl px-4 py-4">
+                  <div className="bg-white rounded-3xl p-8 shadow-2xl border-4 border-[var(--cta-primary)] max-w-md w-full flex flex-col items-center gap-6">
+                    <h3 className="text-3xl font-bold text-[var(--text-primary)] font-[Comic Neue] text-center">
+                      Did you understand it? 🤔
+                    </h3>
+                    
+                    <div className="flex gap-4 w-full">
+                      <button
+                        onClick={() => {
+                          setShowUnderstandingCheck(true);
+                          setVideoCompleted(false);
+                          topicExplainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }}
+                        className="flex-1 bg-gradient-to-r from-[#4CAF50] to-[#81C784] hover:shadow-xl text-white font-bold text-lg py-4 px-6 rounded-2xl transition-all duration-300 hover:scale-105 border-4 border-[#2E7D32]"
+                      >
+                        ✅ Yes!
+                      </button>
+                      
+                      <button
+                        onClick={() => {
+                          setVideoCompleted(false);
+                          // For body parts videos, switch to alternate version
+                          if (currentPreloadedKeyword && (currentPreloadedKeyword.includes("body") || currentPreloadedKeyword === "skin" || currentPreloadedKeyword === "bone" || currentPreloadedKeyword === "skeleton" || currentPreloadedKeyword === "organs" || currentPreloadedKeyword === "anatomy")) {
+                            const nextVersion = bodyPartsVideoVersion === 1 ? 2 : 1;
+                            setBodyPartsVideoVersion(nextVersion);
+                            // Get the alternate video URL
+                            const originalText = chatHistory[chatHistory.length - 2]?.text || "";
+                            const alternateVideo = getPreloadedVideoUrl(originalText, nextVersion);
+                            if (alternateVideo) {
+                              setSpecialVideo(alternateVideo.url);
+                              console.log(`🎬 Switching to body parts video version ${nextVersion}`);
+                            }
+                          }
+                          // Replay the video
+                          if (specialVideoRef.current) {
+                            specialVideoRef.current.currentTime = 0;
+                            specialVideoRef.current.play();
+                          }
+                        }}
+                        className="flex-1 bg-gradient-to-r from-[#FF6B6B] to-[#FF8A65] hover:shadow-xl text-white font-bold text-lg py-4 px-6 rounded-2xl transition-all duration-300 hover:scale-105 border-4 border-[#D32F2F]"
+                      >
+                        ❌ No, Show Again
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -2699,6 +3003,57 @@ const cleanQuery = (query: string): string => {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ================= CLASS SELECTION MODAL ================= */}
+      <Dialog open={showClassModal} onOpenChange={setShowClassModal}>
+        <DialogContent className="max-w-2xl bg-gradient-to-br from-[#FFE5E5] via-[#FFF9E5] to-[#E8F5E9] border-4 border-[#4CAF50] rounded-3xl shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-4xl font-bold text-center text-[var(--text-primary)] font-[Comic Neue] flex items-center justify-center gap-3">
+              <span className="text-5xl">📚</span>
+              What Class Are You In?
+              <span className="text-5xl">🎓</span>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="p-8 space-y-6">
+            <p className="text-center text-xl text-[var(--text-secondary)] font-[Poppins] font-semibold">
+              Choose your class level so we can pick the right difficulty level for you! 😊
+            </p>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {classOptions.map((classLevel) => {
+                const displayName = classLevel === "Kindergarten" ? "KG" : classLevel;
+                return (
+                  <button
+                    key={classLevel}
+                    onClick={() => handleClassSelect(classLevel)}
+                    className="bg-white border-4 border-[#4CAF50] rounded-2xl p-6 text-center transition-all duration-300 hover:scale-110 hover:shadow-xl hover:bg-[#E8F5E9] active:scale-95"
+                  >
+                    <div className="text-4xl mb-2 font-bold">
+                      {classLevel === "Nursery" && "👶"}
+                      {classLevel === "Kindergarten" && "🎈"}
+                      {classLevel === "1" && "1️⃣"}
+                      {classLevel === "2" && "2️⃣"}
+                      {classLevel === "3" && "3️⃣"}
+                      {classLevel === "4" && "4️⃣"}
+                      {classLevel === "5" && "5️⃣"}
+                    </div>
+                    <div className="text-lg font-bold text-[var(--text-primary)]">
+                      {displayName}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-8 p-4 bg-white/80 rounded-xl border-2 border-[#FFA500]">
+              <p className="text-center text-sm text-[var(--text-secondary)] font-[Poppins]">
+                ✨ You can change this anytime! Just click the pencil icon next to your class name. ✨
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2708,4 +3063,3 @@ function normalizeDialogueKey(dialogue: string): string {
     .trim()
     .toLowerCase();
 }
-

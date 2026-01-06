@@ -147,7 +147,3 @@ def build_animation_scenes(
         )
 
     return out
-
-
-
-

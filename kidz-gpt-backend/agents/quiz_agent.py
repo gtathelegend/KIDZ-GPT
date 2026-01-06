@@ -12,7 +12,7 @@ from models.schemas import QuizQuestion
 class QuizAgent:
     def __init__(self):
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-        self.model = os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud")
+        self.model = os.getenv("OLLAMA_MODEL", "deepseek-v3.1:671b-cloud")
 
     def _parse_ollama_json(self, response_content: Any) -> Dict[str, Any]:
         if isinstance(response_content, dict):
@@ -39,7 +39,13 @@ class QuizAgent:
 
         return json.loads(raw)
 
-    async def generate_quiz(self, topic: str, explainer: Dict[str, Any], language: str = "en") -> Dict[str, List[Dict[str, Any]]]:
+    async def generate_quiz(
+        self,
+        topic: str,
+        explainer: Dict[str, Any],
+        language: str = "en",
+        selected_class: str | None = None,
+    ) -> Dict[str, List[Dict[str, Any]]]:
         topic = (topic or "").strip()
         lang = (language or "en").strip().lower().split("-")[0]
         lang_name = {
@@ -50,11 +56,18 @@ class QuizAgent:
             "te": "Telugu (తెలుగు)",
         }.get(lang, language or "English")
 
+        grade_hint = (selected_class or "").strip()
+        if grade_hint:
+            grade_line = f"The child is in class/grade: {grade_hint}. Make the questions and options suitable for this grade level."
+        else:
+            grade_line = "The child is in primary school (roughly classes 1–5). Keep all questions simple and age-appropriate."
+
         system = f"""
 You are a quiz creator for a children's learning app. Your role is to create a fun, simple, and educational quiz based on a given topic and explanation.
 
 - The quiz must be in {lang_name}.
-- Questions should be simple and directly related to the provided explanation.
+    - Questions should be simple and directly related to the provided explanation.
+    - {grade_line}
 - Each question must have exactly two options: one correct, one incorrect.
 - The incorrect option should be plausible but clearly wrong.
 - Return a JSON object with a "questions" array.
@@ -71,7 +84,7 @@ Explanation:
 Language: {lang_name}
 
 RULES:
-- Generate exactly 2 questions.
+- Generate exactly 3 questions.
 - Each question must have 2 options: one correct, one incorrect.
 - The 'correctAnswer' field must be the 0-indexed integer of the correct option.
 - All text MUST be in {lang_name}.
@@ -141,5 +154,10 @@ REQUIRED JSON FORMAT:
 _default_agent = QuizAgent()
 
 
-async def generate_quiz(topic: str, explainer: Dict[str, Any], language: str = "en") -> Dict[str, List[Dict[str, Any]]]:
-    return await _default_agent.generate_quiz(topic, explainer, language)
+async def generate_quiz(
+    topic: str,
+    explainer: Dict[str, Any],
+    language: str = "en",
+    selected_class: str | None = None,
+) -> Dict[str, List[Dict[str, Any]]]:
+    return await _default_agent.generate_quiz(topic, explainer, language, selected_class=selected_class)
