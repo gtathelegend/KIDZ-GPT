@@ -1,11 +1,10 @@
 import { Canvas } from "@react-three/fiber";
 import { useMemo, useState } from "react";
-import Ben10 from "./characters/Ben10";
 import Boy from "./characters/Boy";
 import Girl from "./characters/Girl";
 import Oggy from "./characters/Oggy";
 
-type CharacterId = "boy" | "girl" | "ben10" | "oggy";
+type CharacterId = "boy" | "girl" | "oggy";
 
 type Scene = {
   scene_id?: number;
@@ -46,7 +45,7 @@ export default function ScenePlayer({
   const action = scene.animation?.action || "neutral";
   const loop = scene.animation?.loop ?? true;
   const safeFallback: CharacterId =
-    fallbackCharacter === "boy" || fallbackCharacter === "ben10" || fallbackCharacter === "oggy"
+    fallbackCharacter === "boy" || fallbackCharacter === "oggy"
       ? fallbackCharacter
       : "girl";
   const character: CharacterId =
@@ -56,9 +55,7 @@ export default function ScenePlayer({
         ? "girl"
         : scene?.character === "boy"
           ? "boy"
-          : scene?.character === "ben10"
-            ? "ben10"
-            : "girl";
+          : "girl";
   const subtitle =
     scene.dialogue?.text ||
     (typeof (scene as any).dialogue === "string" ? (scene as any).dialogue : "") ||
@@ -84,7 +81,7 @@ export default function ScenePlayer({
   return (
     <div className="w-full h-full flex flex-col">
       <div className="flex-1 min-h-[280px]">
-        <Canvas camera={{ position: [0, 0.8, cameraDistance], fov: 45 }}>
+        <Canvas camera={{ position: [0, 1.0, cameraDistance], fov: 45 }}>
           <ambientLight intensity={0.6} />
           <directionalLight position={[5, 5, 5]} intensity={1} />
 
@@ -94,10 +91,6 @@ export default function ScenePlayer({
 
           {character === "boy" && (
             <Boy action={action} loop={loop} active={active} playing={playing} />
-          )}
-
-          {character === "ben10" && (
-            <Ben10 action={action} loop={loop} active={active} playing={playing} />
           )}
 
           {character === "oggy" && (

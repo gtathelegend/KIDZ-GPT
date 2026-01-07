@@ -76,7 +76,7 @@ type ExplainerPollResponse = {
 
 type Scene = {
   scene_id?: number;
-  character?: "boy" | "girl" | "ben10" | "oggy";
+  character?: "boy" | "girl" | "oggy";
   animation?: {
     action?: string;
     loop?: boolean;
@@ -432,10 +432,8 @@ const normalizeTo3DScenes = (input: any): Scene[] => {
             ? "girl"
             : s?.character === "boy"
               ? "boy"
-              : s?.character === "ben10"
-                ? "ben10"
-                : s?.character === "oggy"
-                  ? "oggy"
+              : s?.character === "oggy"
+                ? "oggy"
                 : undefined,
         animation: {
           action: s?.animation?.action ?? "neutral",
@@ -480,11 +478,11 @@ export default function Home() {
   // Translation helper for UI strings (depends on uiLanguage).
   const t = (key: string) => UI_STRINGS[uiLanguage]?.[key] ?? UI_STRINGS.en[key] ?? key;
 
-  const [character, setCharacter] = useState<"boy" | "girl" | "ben10" | "oggy">(() => {
+  const [character, setCharacter] = useState<"boy" | "girl" | "oggy">(() => {
     const saved = localStorage.getItem("kidzgpt-character");
-    return saved === "boy" || saved === "girl" || saved === "ben10" || saved === "oggy"
-      ? (saved as "boy" | "girl" | "ben10" | "oggy")
-      : "ben10";
+    return saved === "boy" || saved === "girl" || saved === "oggy"
+      ? (saved as "boy" | "girl" | "oggy")
+      : "girl";
   });
 
   const getInitialPresetVideoSpeed = (): number => {
@@ -2448,14 +2446,13 @@ const cleanQuery = (query: string): string => {
                   <select
                     id="character-select"
                     value={character}
-                    onChange={(e) => setCharacter(e.target.value as "boy" | "girl" | "ben10" | "oggy")}
+                    onChange={(e) => setCharacter(e.target.value as "boy" | "girl" | "oggy")}
                     className="w-full bg-white px-3 py-2 rounded-md shadow-sm border-2 border-[var(--border-soft)] text-[var(--text-primary)] font-bold"
                     aria-label="Select character"
                   >
                     <option value="boy">Boy 👦</option>
                     <option value="girl">Girl 👧</option>
                     <option value="oggy">Oggy</option>
-                    <option value="ben10">Ben 10</option>
                   </select>
                 </div>
                 <DropdownMenuSeparator />
