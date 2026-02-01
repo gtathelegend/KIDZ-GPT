@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from services.translation_service import translate_text
 from services.cache_service import get_by_key
+from services.wikipedia_service import fetch_topic_image_payload
 from services.gesture_service import detect_gesture
 from agents.quiz_agent import generate_quiz
 
@@ -209,3 +210,34 @@ async def create_quiz(request: dict):
         print("❌ ERROR OCCURRED during quiz generation")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/topic-image")
+async def get_topic_image(query: str, lang: str = "en"):
+    """Fetch a topic image from Wikipedia for the given query.
+
+    Returns:
+      - {"imageUrl": "...", "title": "...", "pageUrl": "..."}
+    """
+    try:
+        query_text = (query or "").strip()
+        if not query_text:
+            raise HTTPException(status_code=400, detail="Missing query")
+
+        primary = await fetch_topic_image_payload(query=query_text, lang=lang)
+        if primary:
+            return primary
+
+        # Fallback to English if requested language yields no image.
+        if (lang or "").strip().lower().split("-")[0] != "en":
+            fallback = await fetch_topic_image_payload(query=query_text, lang="en")
+            if fallback:
+                return fallback
+
+        raise HTTPException(status_code=404, detail="No image found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("❌ ERROR OCCURRED during topic-image fetch")
+        traceback.print_exc()
+        raise HTTPException(status_code=502, detail=str(e))
